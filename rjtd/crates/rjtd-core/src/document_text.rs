@@ -29,9 +29,11 @@ const TEXT_RUN_MARKER: u16 = 0x001f;
 const INLINE_TEXT_START: u16 = 0x001d;
 const INLINE_TEXT_END: u16 = 0x001e;
 // 0x000e separates 0x001c/0x0030 table-cell records; reading_text stays true across it.
+// 0x000c is a page break (form feed, see RFC 0003); reading_text stays true across it.
 // 0x000a is a within-cell/intra-paragraph line break (see RFC 0009); treated as a plain
 // text character ('\n') by is_control_boundary, which intentionally excludes 0x09/0x0a/0x0d.
 const TEXT_ROW_DELIMITER: u16 = 0x000e;
+pub const DOCUMENT_TEXT_PAGE_BREAK_CONTROL: u16 = 0x000c;
 const SKIPPED_INLINE_MAX_UNITS: usize = 256;
 
 // RFC 0009: 0x001c record class codes (decoded:false — structure proven, semantics partial)
@@ -587,7 +589,8 @@ pub fn parse_document_text(data: &[u8]) -> ParsedDocumentText {
                 elements.push(DocumentTextElement::ControlBoundary(
                     DocumentTextControl::new(code),
                 ));
-                reading_text = code == TEXT_ROW_DELIMITER;
+                reading_text =
+                    code == TEXT_ROW_DELIMITER || code == DOCUMENT_TEXT_PAGE_BREAK_CONTROL;
             } else if let Some(character) = char::from_u32(code as u32) {
                 run.push(character);
             }
@@ -646,7 +649,8 @@ pub fn map_document_text(data: &[u8]) -> DocumentTextMap {
             if is_control_boundary(code) || is_invalid_scalar(code) {
                 push_map_run(&mut entries, &mut run, run_start, index);
                 push_map_control(&mut entries, index, code);
-                reading_text = code == TEXT_ROW_DELIMITER;
+                reading_text =
+                    code == TEXT_ROW_DELIMITER || code == DOCUMENT_TEXT_PAGE_BREAK_CONTROL;
             } else if let Some(character) = char::from_u32(code as u32) {
                 if run.is_empty() {
                     run_start = index;
@@ -949,6 +953,35 @@ mod tests {
         assert_eq!(map.entries()[1].kind(), DocumentTextMapKind::TextRun);
         assert_eq!(map.entries()[1].unit_start(), 2);
         assert_eq!(map.entries()[1].text(), "１，次の計算をしなさい\n");
+    }
+
+    #[test]
+    fn continues_text_after_page_break_control_inside_text_run() {
+        let mut bytes = vec![0x00, 0x1f];
+        for unit in "一、午后の授業".encode_utf16() {
+            bytes.extend_from_slice(&unit.to_be_bytes());
+        }
+        extend_units(&mut bytes, &[super::DOCUMENT_TEXT_PAGE_BREAK_CONTROL]);
+        for unit in "二、活版所\n".encode_utf16() {
+            bytes.extend_from_slice(&unit.to_be_bytes());
+        }
+        extend_units(&mut bytes, &[0x001c]);
+
+        assert_eq!(extract_document_text(&bytes), "一、午后の授業二、活版所\n");
+
+        let map = map_document_text(&bytes);
+        assert_eq!(map.entries()[0].kind(), DocumentTextMapKind::TextRun);
+        assert_eq!(map.entries()[0].text(), "一、午后の授業");
+        assert_eq!(
+            map.entries()[1].kind(),
+            DocumentTextMapKind::ControlBoundary
+        );
+        assert_eq!(
+            map.entries()[1].code(),
+            Some(super::DOCUMENT_TEXT_PAGE_BREAK_CONTROL)
+        );
+        assert_eq!(map.entries()[2].kind(), DocumentTextMapKind::TextRun);
+        assert_eq!(map.entries()[2].text(), "二、活版所\n");
     }
 
     #[test]

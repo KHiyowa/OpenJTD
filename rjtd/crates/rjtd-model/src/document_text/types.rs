@@ -10,7 +10,7 @@ pub(crate) const DOCUMENT_TEXT_RUBY_TEXT_SELECTOR: u16 = 0x0082;
 
 pub(crate) const DOCUMENT_TEXT_TOC_PAGE_SELECTOR: u16 = 0x0101;
 
-pub(crate) const DOCUMENT_TEXT_PAGE_BREAK_CONTROL: u16 = 0x000c;
+pub(crate) use rjtd_core::document_text::DOCUMENT_TEXT_PAGE_BREAK_CONTROL;
 
 pub(crate) const DOCUMENT_TEXT_PATH: &str = "/DocumentText";
 
