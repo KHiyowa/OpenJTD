@@ -71,9 +71,21 @@ pub(crate) fn run_export(mut args: impl Iterator<Item = String>) -> Result<(), S
             return Err(format!("sheet `{sheet_spec}` not found"));
         };
         match options.format.as_str() {
-            "txt" | "text" => write_stdout(sheet.text())?,
+            "txt" | "text" => {
+                let text = if let Some(fn_text) = sheet.footnote_text() {
+                    format!("{}\n\n{}", sheet.text().trim_end(), fn_text.trim())
+                } else {
+                    sheet.text().to_string()
+                };
+                write_stdout(&text)?;
+            }
             "md" | "markdown" => {
-                write_stdout_line(&format!("# {}\n\n{}", sheet.name(), sheet.text().trim()))?;
+                let content = if let Some(fn_text) = sheet.footnote_text() {
+                    format!("{}\n\n## 参考文献\n\n{}", sheet.text().trim(), fn_text.trim())
+                } else {
+                    sheet.text().trim().to_string()
+                };
+                write_stdout_line(&format!("# {}\n\n{}", sheet.name(), content))?;
             }
             other => {
                 return Err(format!(

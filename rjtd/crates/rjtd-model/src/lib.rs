@@ -151,6 +151,7 @@ pub struct DocumentSheet {
     storage_path: String,
     original_path: Option<String>,
     text: String,
+    footnote_text: Option<String>,
 }
 
 impl DocumentSheet {
@@ -167,7 +168,13 @@ impl DocumentSheet {
             storage_path: storage_path.into(),
             original_path,
             text: text.into(),
+            footnote_text: None,
         }
+    }
+
+    pub fn with_footnote_text(mut self, footnote_text: impl Into<String>) -> Self {
+        self.footnote_text = Some(footnote_text.into());
+        self
     }
 
     pub fn index(&self) -> usize {
@@ -188,6 +195,10 @@ impl DocumentSheet {
 
     pub fn text(&self) -> &str {
         &self.text
+    }
+
+    pub fn footnote_text(&self) -> Option<&str> {
+        self.footnote_text.as_deref()
     }
 }
 
@@ -472,7 +483,14 @@ impl Document {
 
     pub fn plain_text(&self) -> String {
         if self.sheets.len() <= 1 {
-            document_plain_text(self)
+            let mut text = document_plain_text(self);
+            if let Some(sheet) = self.sheets.first()
+                && let Some(fn_text) = sheet.footnote_text()
+            {
+                text.push_str("\n\n");
+                text.push_str(fn_text.trim());
+            }
+            text
         } else {
             let mut output = String::new();
             for (i, sheet) in self.sheets.iter().enumerate() {
@@ -481,6 +499,10 @@ impl Document {
                 }
                 output.push_str(&format!("# {}\n\n", sheet.name()));
                 output.push_str(sheet.text().trim());
+                if let Some(fn_text) = sheet.footnote_text() {
+                    output.push_str("\n\n");
+                    output.push_str(fn_text.trim());
+                }
             }
             output
         }
@@ -621,19 +643,34 @@ impl IchitaroParser {
                             String::new()
                         }
                     };
-                    document.push_sheet(DocumentSheet::new(
+                    let footnote_path = sheet_info.footnote_path();
+                    let footnote_text = read_cfb_stream(data, &footnote_path)
+                        .ok()
+                        .and_then(|stream_bytes| read_footnote_text(&stream_bytes));
+                    let mut sheet = DocumentSheet::new(
                         sheet_info.index(),
                         sheet_info.name(),
                         sheet_info.storage_path(),
                         sheet_info.original_path().map(str::to_string),
                         text,
-                    ));
+                    );
+                    if let Some(fn_text) = footnote_text {
+                        sheet = sheet.with_footnote_text(fn_text);
+                    }
+                    document.push_sheet(sheet);
                 }
             }
         }
         if document.sheets().is_empty() {
             let root_text = document_plain_text(&document);
-            document.push_sheet(DocumentSheet::new(0, "タイトル", "", None, root_text));
+            let root_footnote = read_cfb_stream(data, "/Footnote")
+                .ok()
+                .and_then(|stream_bytes| read_footnote_text(&stream_bytes));
+            let mut sheet = DocumentSheet::new(0, "タイトル", "", None, root_text);
+            if let Some(fn_text) = root_footnote {
+                sheet = sheet.with_footnote_text(fn_text);
+            }
+            document.push_sheet(sheet);
         }
         Ok(document)
     }
@@ -644,6 +681,57 @@ impl DocumentParser for IchitaroParser {
         let mut budget = ParseLimits::DEFAULT.resource_budget();
         budget.check_input_size(data.len())?;
         self.parse_with_budget(data, &mut budget)
+    }
+}
+
+// Footnote stream entries are cross-reference anchor labels
+// ([0x001c,0x0001,0x0007,0x0000,0x0000,0x0001], 0x001d, <label>, 0x001e) each
+// followed by the note body. The decoded label carries the Ichitaro-rendered
+// numbering itself, so any decoration works ([1], (1), 1), *1, ①, [注1], ...).
+// Walking the elements structurally pairs each label (selector 0x0001) with the
+// note body TextRun(s) that follow it; a trailing label with no body (the
+// internal template sentinel, e.g. the default label `Note`) never pairs with
+// anything and is dropped without hardcoding its text.
+const FOOTNOTE_ANCHOR_SELECTOR: u16 = 0x0001;
+
+fn read_footnote_text(stream_bytes: &[u8]) -> Option<String> {
+    let parsed = parse_document_text(stream_bytes);
+    let mut output = String::new();
+    let mut current_label: Option<&str> = None;
+
+    for element in parsed.elements() {
+        match element {
+            DocumentTextElement::InlineText(segment) => {
+                if segment.selector() == FOOTNOTE_ANCHOR_SELECTOR {
+                    current_label = Some(segment.text());
+                }
+            }
+            DocumentTextElement::TextRun(text) => {
+                let text = text.trim();
+                if text.is_empty() {
+                    continue;
+                }
+                if let Some(label) = current_label.take() {
+                    if !output.is_empty() {
+                        output.push('\n');
+                    }
+                    output.push_str(label);
+                    output.push(' ');
+                    output.push_str(text);
+                } else {
+                    output.push(' ');
+                    output.push_str(text);
+                }
+            }
+            DocumentTextElement::SkippedInlineText(_) | DocumentTextElement::ControlBoundary(_) => {}
+        }
+    }
+
+    let trimmed = output.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
     }
 }
 

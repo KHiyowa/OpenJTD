@@ -3,6 +3,8 @@ mod support;
 
 #[path = "streams/container.rs"]
 mod container;
+#[path = "streams/footnote.rs"]
+mod footnote;
 #[path = "streams/line_mark.rs"]
 mod line_mark;
 #[path = "streams/object_fdm.rs"]

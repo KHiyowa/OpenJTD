@@ -54,6 +54,14 @@ impl SheetItem {
             format!("{}/DocumentText", self.storage_path.trim_end_matches('/'))
         }
     }
+
+    pub fn footnote_path(&self) -> String {
+        if self.storage_path.is_empty() || self.storage_path == "/" {
+            "/Footnote".to_string()
+        } else {
+            format!("{}/Footnote", self.storage_path.trim_end_matches('/'))
+        }
+    }
 }
 
 pub fn has_multiple_sheets(data: &[u8]) -> bool {
