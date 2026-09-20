@@ -1142,7 +1142,7 @@ pub(crate) fn document_plain_text(document: &Document) -> String {
         }
     }
 
-    output
+    rjtd_core::document_text::trim_trailing_exposed_controls(&output).to_string()
 }
 
 pub(crate) fn checked_char_boundary(text: &str, char_offset: usize) -> Result<usize> {

@@ -1,7 +1,8 @@
+use rjtd_core::document_text::trim_trailing_exposed_controls;
 use rjtd_model::{Block, Document, Inline};
 
 pub fn to_plain_text(document: &Document) -> String {
-    if document.sheets().len() > 1 {
+    let output = if document.sheets().len() > 1 {
         document.plain_text()
     } else {
         let mut output = String::new();
@@ -16,11 +17,12 @@ pub fn to_plain_text(document: &Document) -> String {
         }
 
         output
-    }
+    };
+    trim_trailing_exposed_controls(&output).to_string()
 }
 
 pub fn to_markdown(document: &Document) -> String {
-    if document.sheets().len() > 1 {
+    let output = if document.sheets().len() > 1 {
         let mut output = String::new();
         for (i, sheet) in document.sheets().iter().enumerate() {
             if i > 0 {
@@ -48,7 +50,8 @@ pub fn to_markdown(document: &Document) -> String {
         }
 
         output
-    }
+    };
+    trim_trailing_exposed_controls(&output).to_string()
 }
 
 fn push_inline_visible_text(output: &mut String, inline: &Inline) {

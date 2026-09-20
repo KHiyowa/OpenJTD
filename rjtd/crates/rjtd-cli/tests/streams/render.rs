@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::{Cursor, Write};
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -414,5 +415,64 @@ fn export_command_rejects_unknown_format() {
         String::from_utf8_lossy(&output.stderr).contains("unsupported export format: docx"),
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+// DocumentText whose body ends with the internal terminal control units 0xFE14 and 0x0490
+// (the `︔`/`Г` pair surfaced as exposed characters at the very end of the stream). Unit
+// tests embed no thesis text; the body is an Aozora Bunko "Night on the Galactic Railroad" line.
+fn tiny_cfb_with_trailing_controls_path() -> PathBuf {
+    // Miyazawa Kenji, Night on the Galactic Railroad (Aozora Bunko 456_15050).
+    let body = "「大きな望遠鏡で銀河をよっく調べると銀河は大体何でしょう。」";
+    let mut bytes = b"SsmgV.01".to_vec();
+    bytes.extend_from_slice(&[0x00, 0x1f]);
+    for unit in body.encode_utf16() {
+        bytes.extend_from_slice(&unit.to_be_bytes());
+    }
+    // Trailing internal terminal markers as they appear in real stream tails.
+    bytes.extend_from_slice(&0xFE14u16.to_be_bytes());
+    bytes.extend_from_slice(&0x0490u16.to_be_bytes());
+
+    let mut compound = cfb::CompoundFile::create(Cursor::new(Vec::new())).unwrap();
+    compound
+        .create_stream("/\u{4}JSRV_SegmentInformation")
+        .unwrap()
+        .write_all(b"segment")
+        .unwrap();
+    compound
+        .create_stream("/DocumentText")
+        .unwrap()
+        .write_all(&bytes)
+        .unwrap();
+
+    write_sample(compound.into_inner().into_inner())
+}
+
+#[test]
+fn export_command_trims_trailing_exposed_terminal_controls() {
+    let path = tiny_cfb_with_trailing_controls_path();
+    let output = Command::new(env!("CARGO_BIN_EXE_rjtd"))
+        .arg("export")
+        .arg(&path)
+        .arg("-f")
+        .arg("text")
+        .output()
+        .unwrap();
+
+    fs::remove_file(&path).unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.contains("大きな望遠鏡で銀河をよっく調べると銀河は大体何でしょう。"),
+        "expected clean body text, got: {stdout:?}"
+    );
+    assert!(
+        !stdout.contains('\u{0490}') && !stdout.contains('\u{FE14}'),
+        "trailing terminal controls (U+0490 / U+FE14) should be trimmed, got: {stdout:?}"
     );
 }

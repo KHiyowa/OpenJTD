@@ -77,7 +77,7 @@ impl ParsedDocumentText {
                 DocumentTextElement::ControlBoundary(_) => {}
             }
         }
-        output
+        trim_trailing_exposed_controls(&output).to_string()
     }
 }
 
@@ -744,6 +744,39 @@ fn is_invalid_scalar(code: u16) -> bool {
     (0xd800..=0xdfff).contains(&code) || code == 0xffff
 }
 
+// Internal terminal/boundary code points that leak into extracted text as visible
+// glyphs even though they are not prose. U+FE14 and U+0490 form the pair appended at
+// the end of a DocumentText stream (seen as `︔Ґ`); U+0400 is an unassigned code point
+// that only ever appears as leaking record-data.
+fn is_exposed_terminal_control(character: char) -> bool {
+    matches!(character as u32, 0x0400 | 0x0490 | 0xfe14)
+}
+
+/// Removes a trailing run of exposed terminal control characters (and any surrounding
+/// whitespace) from `text`. The trailing region is the maximal suffix made up of
+/// whitespace and exposed controls; it is removed only when it contains at least one
+/// exposed control, so a trailing run of whitespace alone (a legitimate line terminator)
+/// is left intact. Controls appearing anywhere except this trailing region are preserved.
+pub fn trim_trailing_exposed_controls(text: &str) -> &str {
+    let mut boundary = usize::MAX;
+    let mut seen_control = false;
+    for (index, character) in text.char_indices().rev() {
+        if is_exposed_terminal_control(character) {
+            seen_control = true;
+            boundary = index;
+        } else if character.is_whitespace() {
+            boundary = index.min(boundary);
+        } else {
+            break;
+        }
+    }
+    if seen_control {
+        &text[..boundary]
+    } else {
+        text
+    }
+}
+
 fn inline_text_selector(units: &[u16], index: usize) -> Option<u16> {
     if index < 6 {
         return None;
@@ -940,9 +973,9 @@ mod tests {
     use super::{
         DocumentTextElement, DocumentTextMapKind, DocumentTextRowHeaderPair,
         DocumentTextRowHeaderPairClassification, EMBEDDED_DOCUMENT_TEXT_PATH,
-        SKIPPED_INLINE_MAX_UNITS, extract_document_text, map_document_text, parse_document_text,
-        parse_document_text_row_headers, read_document_text_payload, read_document_text_stream,
-        units_to_be_bytes,
+        SKIPPED_INLINE_MAX_UNITS, TEXT_RUN_MARKER, extract_document_text, map_document_text,
+        parse_document_text, parse_document_text_row_headers, read_document_text_payload,
+        read_document_text_stream, trim_trailing_exposed_controls, units_to_be_bytes,
     };
     use crate::compressed_document::is_just_compressed_document;
     use std::io::{Cursor, Write};
@@ -1654,5 +1687,73 @@ mod tests {
                 super::TEXT_CONTENT_HEADER_WORDS + content_unit_count as usize
             );
         }
+    }
+    #[test]
+    fn trims_trailing_exposed_terminal_controls_from_plain_text() {
+        // Unit tests must not embed thesis text; using an Aozora Bunko "Night on the
+        // Galactic Railroad" excerpt instead (per plan). 夜 is a real prose character.
+        let body = "ではみなさんは、そういうふうに川だと云われたり、乳の流れたあとだと云われたりしていたこのぼんやりと白いものがほんとうは何かご承知ですか。";
+        let mut content_units: Vec<u16> = body.encode_utf16().collect();
+        // Terminal exposed controls appended at the end of the DocumentText stream:
+        // 0xFE14 (︔) and 0x0490 (Ґ), plus 0x0400 (unassigned) as leaking record data.
+        for unit in [0xFE14u16, 0x0400, 0x0490] {
+            content_units.push(unit);
+        }
+
+        assert_eq!(
+            trim_trailing_exposed_controls("ジョバンニ\u{FE14}\u{0400}\u{0490}"),
+            "ジョバンニ"
+        );
+        assert_eq!(trim_trailing_exposed_controls("ジョバンニ\u{FE14}"), "ジョバンニ");
+        assert_eq!(trim_trailing_exposed_controls("ジョバンニ\u{0490}"), "ジョバンニ");
+        // Whitespace immediately before the controls (as in `0.475 ︔`) is trimmed too.
+        assert_eq!(trim_trailing_exposed_controls("0.475 \u{FE14}\u{0490}"), "0.475");
+        // Whitespace after the controls is part of the trailing region.
+        assert_eq!(trim_trailing_exposed_controls("ジョバンニ\u{FE14}  "), "ジョバンニ");
+        // A trailing run of whitespace alone is a legitimate line terminator: kept.
+        assert_eq!(trim_trailing_exposed_controls("ジョバンニ\n\n"), "ジョバンニ\n\n");
+        // No exposed controls at all: text is unchanged.
+        assert_eq!(trim_trailing_exposed_controls(body), body);
+
+        let mut data = b"SsmgV.01".to_vec();
+        extend_units(&mut data, &[0x0000, 0x0001, 0x0000, 0x0100, 0x0000, 0x0027]);
+        data.extend_from_slice(b"TextV.01");
+        data.extend_from_slice(&((1 + content_units.len()) as u32).to_be_bytes());
+        extend_units(&mut data, &[TEXT_RUN_MARKER]);
+        extend_units(&mut data, &content_units);
+
+        let parsed = parse_document_text(&data);
+        let plain = parsed.plain_text();
+        assert!(
+            plain.ends_with(body),
+            "expected clean trailing body text, got: {plain:?}"
+        );
+        assert!(
+            !plain.contains('\u{FE14}') && !plain.contains('\u{0490}'),
+            "exposed terminal controls should be trimmed, got: {plain:?}"
+        );
+    }
+
+    #[test]
+    fn keeps_mid_text_exposed_records_but_only_trims_the_final_sequence() {
+        // 0x0400 / 0xFE14 appearing mid-stream (inside table/formula data) are out of
+        // scope for the trailing trim; only the terminal sequence at the very end is removed.
+        let mut bytes = b"SsmgV.01".to_vec();
+        bytes.extend_from_slice(&[0x00, 0x1f]);
+        for unit in "銀河".encode_utf16() {
+            bytes.extend_from_slice(&unit.to_be_bytes());
+        }
+        bytes.extend_from_slice(&0x0400u16.to_be_bytes());
+        for unit in "鉄道".encode_utf16() {
+            bytes.extend_from_slice(&unit.to_be_bytes());
+        }
+        // Final exposed terminal sequence.
+        for unit in [0xFE14u16, 0x0490] {
+            bytes.extend_from_slice(&unit.to_be_bytes());
+        }
+
+        let parsed = parse_document_text(&bytes);
+        let plain = parsed.plain_text();
+        assert_eq!(plain, "銀河\u{0400}鉄道");
     }
 }
