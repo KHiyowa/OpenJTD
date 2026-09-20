@@ -596,7 +596,9 @@ pub fn parse_document_text(data: &[u8]) -> ParsedDocumentText {
             reading_text = false;
             if let Some(selector) = inline_text_selector(&units, index) {
                 index = push_inline_segment(&mut elements, &units, index, selector);
-            } else if let Some((segment, next_index)) = read_skipped_inline_segment(&units, index) {
+            } else if skipped_inline_selector(&units, index).is_some()
+                && let Some((segment, next_index)) = read_skipped_inline_segment(&units, index)
+            {
                 elements.push(DocumentTextElement::SkippedInlineText(segment));
                 index = next_index;
             } else {
@@ -657,7 +659,9 @@ pub fn map_document_text(data: &[u8]) -> DocumentTextMap {
             reading_text = false;
             if let Some(selector) = inline_text_selector(&units, index) {
                 index = push_mapped_inline_segment(&mut entries, &units, index, selector);
-            } else if let Some((segment, next_index)) = read_skipped_inline_segment(&units, index) {
+            } else if skipped_inline_selector(&units, index).is_some()
+                && let Some((segment, next_index)) = read_skipped_inline_segment(&units, index)
+            {
                 entries.push(DocumentTextMapEntry::new(
                     index,
                     next_index,
@@ -749,6 +753,27 @@ fn inline_text_selector(units: &[u16], index: usize) -> Option<u16> {
     if context[..5] == [0x001c, 0x0001, 0x0007, 0x0000, 0x0000]
         && matches!(context[5], 0x0001 | 0x0003 | 0x0013)
     {
+        Some(context[5])
+    } else {
+        None
+    }
+}
+
+fn skipped_inline_selector(units: &[u16], index: usize) -> Option<u16> {
+    if index == 0 {
+        return None;
+    }
+
+    if units[index - 1] == 0x001c {
+        return Some(0x001c);
+    }
+
+    if index < 6 {
+        return None;
+    }
+
+    let context = &units[index - 6..index];
+    if context[..5] == [0x001c, 0x0001, 0x0007, 0x0000, 0x0001] {
         Some(context[5])
     } else {
         None
@@ -1237,6 +1262,42 @@ mod tests {
             element,
             DocumentTextElement::ControlBoundary(control) if control.code() == 0x001d
         )));
+    }
+
+    #[test]
+    fn extracts_styled_body_text_inside_inline_start_end_boundaries() {
+        // 宮沢賢治「銀河鉄道の夜」より:
+        // 文字装飾コード（0x00a3...0x00a4...0x001d...0x001f）で囲まれた本文が
+        // 誤ってスキップされず正常に抽出されることを検証
+        let mut bytes = Vec::new();
+        for unit in "先生は、黒板に吊した大きな黒い星座の図の、上から下へ白くけぶった銀河帯のようなところを指しながら、みんなに問をかけました。\n".encode_utf16() {
+            bytes.extend_from_slice(&unit.to_be_bytes());
+        }
+        extend_units(
+            &mut bytes,
+            &[
+                0x001c, 0x0010, 0x0011, 0x0000, 0x00a3, 0x0002, 0x0002, 0xffff, 0x00a4,
+                0x0001, 0x001d, 0xffff, 0x0000, 0x0011, 0x0000, 0x0010, 0x001f,
+            ],
+        );
+        for unit in "「ではみなさんは、そういうふうに川だと云われたり、乳の流れたあとだと云われたりしていたこのぼんやりと白いものがほんとうは何かご承知ですか。」".encode_utf16() {
+            bytes.extend_from_slice(&unit.to_be_bytes());
+        }
+        extend_units(
+            &mut bytes,
+            &[
+                0x000a, 0x001c, 0x0010, 0x0011, 0x0000, 0x00a3, 0x0002, 0x0002, 0xffff,
+                0x00a4, 0x0001, 0x001e,
+            ],
+        );
+        extend_units(&mut bytes, &[0x001f]);
+        for unit in "カムパネルラが手をあげました。".encode_utf16() {
+            bytes.extend_from_slice(&unit.to_be_bytes());
+        }
+
+        let extracted = extract_document_text(&bytes);
+        assert!(extracted.contains("「ではみなさんは、そういうふうに川だと云われたり、乳の流れたあとだと云われたりしていたこのぼんやりと白いものがほんとうは何かご承知ですか。」"));
+        assert!(extracted.contains("カムパネルラが手をあげました。"));
     }
 
     #[test]
