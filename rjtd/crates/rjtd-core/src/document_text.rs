@@ -530,6 +530,26 @@ pub fn extract_document_text(data: &[u8]) -> String {
 const SSMG_RAW_TEXT_SEGMENT_COUNT: u16 = 0x0001;
 const SSMG_HEADER_WORDS: usize = 10; // SsmgV.01 (4) + header (4) + segment-count (2)
 const TEXT_SEGMENT_NAME: &[u8; 8] = b"TextV.01";
+const CONTENT_UNIT_COUNT_OFFSET: usize = 28;
+const TEXT_CONTENT_HEADER_WORDS: usize = 16; // 32 bytes
+
+fn document_text_unit_limit(data: &[u8]) -> Option<usize> {
+    if data.starts_with(DOCUMENT_TEXT_MAGIC)
+        && data.len() >= TEXT_CONTENT_HEADER_WORDS * 2
+        && data.get(SSMG_HEADER_WORDS * 2..SSMG_HEADER_WORDS * 2 + TEXT_SEGMENT_NAME.len())
+            == Some(TEXT_SEGMENT_NAME)
+    {
+        let count = u32::from_be_bytes([
+            data[CONTENT_UNIT_COUNT_OFFSET],
+            data[CONTENT_UNIT_COUNT_OFFSET + 1],
+            data[CONTENT_UNIT_COUNT_OFFSET + 2],
+            data[CONTENT_UNIT_COUNT_OFFSET + 3],
+        ]) as usize;
+        Some(TEXT_CONTENT_HEADER_WORDS.saturating_add(count))
+    } else {
+        None
+    }
+}
 
 pub fn parse_document_text(data: &[u8]) -> ParsedDocumentText {
     // SsmgV.01 w[9]=0x0001: single raw-text segment (no 0x001f paragraph markers).
@@ -552,12 +572,15 @@ pub fn parse_document_text(data: &[u8]) -> ParsedDocumentText {
         .chunks_exact(2)
         .map(|chunk| u16::from_be_bytes([chunk[0], chunk[1]]))
         .collect::<Vec<_>>();
+    let unit_limit = document_text_unit_limit(data)
+        .unwrap_or(units.len())
+        .min(units.len());
     let mut elements = Vec::new();
     let mut run = String::new();
     let mut reading_text = false;
     let mut index = 0;
 
-    while index < units.len() {
+    while index < unit_limit {
         let code = units[index];
         if code == TEXT_RUN_MARKER {
             push_run(&mut elements, &mut run);
@@ -608,13 +631,16 @@ pub fn map_document_text(data: &[u8]) -> DocumentTextMap {
         .chunks_exact(2)
         .map(|chunk| u16::from_be_bytes([chunk[0], chunk[1]]))
         .collect::<Vec<_>>();
+    let unit_limit = document_text_unit_limit(data)
+        .unwrap_or(units.len())
+        .min(units.len());
     let mut entries = Vec::new();
     let mut run = String::new();
     let mut run_start = 0usize;
     let mut reading_text = false;
     let mut index = 0;
 
-    while index < units.len() {
+    while index < unit_limit {
         let code = units[index];
         if code == TEXT_RUN_MARKER {
             push_map_run(&mut entries, &mut run, run_start, index);
@@ -662,7 +688,7 @@ pub fn map_document_text(data: &[u8]) -> DocumentTextMap {
         index += 1;
     }
 
-    push_map_run(&mut entries, &mut run, run_start, units.len());
+    push_map_run(&mut entries, &mut run, run_start, unit_limit);
     DocumentTextMap::new(entries)
 }
 
@@ -1481,5 +1507,55 @@ mod tests {
             .write_all(payload)
             .unwrap();
         compound.into_inner().into_inner()
+    }
+
+    #[test]
+    fn bounds_document_text_parsing_to_content_unit_count() {
+        // Night on the Galactic Railroad (Miyazawa Kenji) via Aozora Bunko
+        let body_text = "一、午后の授業\n「ではみなさんは、そういうふうに川だと云われたり、乳の流れたあとだと云われたりしていたこのぼんやりと白いものがほんとうは何かご承知ですか。」";
+        let body_units: Vec<u16> = body_text.encode_utf16().collect();
+        // 1 unit for TEXT_RUN_MARKER (0x001f) + body_units.len()
+        let content_unit_count = (1 + body_units.len()) as u32;
+
+        let mut data = Vec::new();
+        // SsmgV.01 header (10 words)
+        data.extend_from_slice(b"SsmgV.01");
+        extend_units(&mut data, &[0x0000, 0x0001, 0x0000, 0x0100, 0x0000, 0x0027]);
+        // TextV.01 segment name (4 words)
+        data.extend_from_slice(b"TextV.01");
+        // Content unit count (2 words / u32-be)
+        data.extend_from_slice(&content_unit_count.to_be_bytes());
+
+        // Body text run: marker + units
+        extend_units(&mut data, &[super::TEXT_RUN_MARKER]);
+        extend_units(&mut data, &body_units);
+
+        // Trailing garbage beyond content_unit_count (e.g. style section or edit residue)
+        // containing a duplicate/extra text run marker and different text.
+        let trailing_garbage = "「大きな望遠鏡で銀河をよっく調べると銀河は大体何でしょう。」";
+        let garbage_units: Vec<u16> = trailing_garbage.encode_utf16().collect();
+        extend_units(&mut data, &[0x0000, 0x001c, super::TEXT_RUN_MARKER]);
+        extend_units(&mut data, &garbage_units);
+
+        let parsed = parse_document_text(&data);
+        let plain = parsed.plain_text();
+        assert!(
+            plain.contains("一、午后の授業"),
+            "expected body text, got: {plain}"
+        );
+        assert!(
+            !plain.contains("大きな望遠鏡で銀河をよっく調べると"),
+            "trailing garbage beyond content_unit_count should not be parsed as body text, got: {plain}"
+        );
+
+        let map = map_document_text(&data);
+        for entry in map.entries() {
+            assert!(
+                entry.unit_end() <= super::TEXT_CONTENT_HEADER_WORDS + content_unit_count as usize,
+                "map entry end {} exceeds unit limit {}",
+                entry.unit_end(),
+                super::TEXT_CONTENT_HEADER_WORDS + content_unit_count as usize
+            );
+        }
     }
 }
