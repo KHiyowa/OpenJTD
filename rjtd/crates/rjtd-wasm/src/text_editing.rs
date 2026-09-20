@@ -7,6 +7,33 @@ impl HwpDocument {
     pub fn plain_text(&self) -> String {
         self.core.plain_text()
     }
+    #[wasm_bindgen(js_name = getSheetCount)]
+    pub fn get_sheet_count(&self) -> u32 {
+        self.core.sheets().len() as u32
+    }
+    #[wasm_bindgen(js_name = getSheets)]
+    pub fn get_sheets(&self) -> String {
+        let sheets = self.core.sheets();
+        let mut json = String::from("[");
+        for (i, sheet) in sheets.iter().enumerate() {
+            if i > 0 {
+                json.push(',');
+            }
+            json.push_str(&format!(
+                r#"{{"index":{},"name":{:?},"storagePath":{:?},"originalPath":{:?}}}"#,
+                sheet.index(),
+                sheet.name(),
+                sheet.storage_path(),
+                sheet.original_path(),
+            ));
+        }
+        json.push(']');
+        json
+    }
+    #[wasm_bindgen(js_name = getSheetPlainText)]
+    pub fn get_sheet_plain_text(&self, index: u32) -> Option<String> {
+        self.core.sheets().get(index as usize).map(|s| s.text().to_string())
+    }
     #[wasm_bindgen(js_name = insertText)]
     pub fn insert_text(
         &mut self,

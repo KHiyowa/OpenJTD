@@ -82,6 +82,10 @@ impl DocumentCore {
         &self.document
     }
 
+    pub fn sheets(&self) -> &[DocumentSheet] {
+        self.document.sheets()
+    }
+
     pub(crate) fn observed_table_candidate(&self, control_idx: u32) -> Option<&TableCandidate> {
         let candidate = self.document.table_candidates().get(control_idx as usize)?;
         candidate.is_row_like().then_some(candidate)
@@ -333,7 +337,7 @@ impl DocumentCore {
     }
 
     pub fn plain_text(&self) -> String {
-        document_plain_text(&self.document)
+        self.document.plain_text()
     }
 
     pub fn page_width_px(&self) -> f64 {

@@ -13,6 +13,8 @@ mod object_stream;
 mod page_mark;
 #[path = "streams/render.rs"]
 mod render;
+#[path = "streams/sheets.rs"]
+mod sheets;
 #[path = "streams/stream_scan.rs"]
 mod stream_scan;
 #[path = "streams/style.rs"]

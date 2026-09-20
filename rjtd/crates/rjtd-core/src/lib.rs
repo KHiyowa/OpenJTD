@@ -12,6 +12,7 @@ pub mod layout_mark;
 pub mod lha;
 pub mod limits;
 pub mod record;
+pub mod sheet;
 pub mod stream;
 pub mod style_stream;
 

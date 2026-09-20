@@ -23,6 +23,8 @@
 /rjtd-testdata/local-samples/**/*.jtd
 /rjtd-testdata/local-samples/**/*.jtt
 /rjtd-testdata/local-samples/**/*.jttc
+/rjtd-testdata/local-samples/*.doc
+/rjtd-testdata/local-samples/**/*.doc
 /rjtd-testdata/local-samples/*.pdf
 /rjtd-testdata/local-samples/**/*.pdf
 /rjtd-testdata/local-samples/**/*.png

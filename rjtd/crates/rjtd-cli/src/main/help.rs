@@ -104,7 +104,8 @@ Usage:
   rjtd page-info <file.jtd> <zero-based-page-index>
   rjtd page-layer-tree <file.jtd> <zero-based-page-index>
   rjtd page-svg <file.jtd> <zero-based-page-index>
-  rjtd export <file.jtd> --format <json|md|text|html|pdf> [-o output.pdf]
+  rjtd sheets <file.jtd>
+  rjtd export <file.jtd> [-f|--format <json|md|text|html|pdf>] [-s|--sheet <name|index>] [-o output.pdf]
 ",
     )
 }

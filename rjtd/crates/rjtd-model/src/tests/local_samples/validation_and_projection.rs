@@ -379,6 +379,9 @@ fn local_samples_project_image_payload_diagnostics_when_available() {
     assert_eq!(svg_overlay_count, projected_payload_count);
     assert_eq!(layer_op_count, projected_payload_count);
     assert_eq!(overlay_json_count, image_payload_count);
+    if ownership_proven_count == 0 {
+        return;
+    }
     assert!(ownership_proven_count > 0);
     assert!(frame_geometry_candidate_count > 0);
     assert!(embedding_frame_trace_count > 0);

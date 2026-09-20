@@ -13,7 +13,7 @@ use rjtd_core::container::{
 use rjtd_core::document_text::{
     DocumentTextControl, DocumentTextElement, DocumentTextMap, DocumentTextMapEntry,
     DocumentTextMapKind, DocumentTextPayload, DocumentTextStyleResolver, InlineTextSegment,
-    ParsedDocumentText, SkippedInlineTextSegment, map_document_text,
+    ParsedDocumentText, SkippedInlineTextSegment, map_document_text, parse_document_text,
     parse_document_text_row_headers, read_document_text_payload_with_budget,
 };
 use rjtd_core::document_text_position::{
@@ -24,6 +24,8 @@ use rjtd_core::layout_mark::{
     PAGE_MARK_PATH, PAPER_MARK_PATH, PageMark, PaperMark, read_page_mark, read_paper_mark,
 };
 use rjtd_core::record::UnknownRecordKind;
+pub use rjtd_core::sheet::{DocumentSheetInfo, SheetItem};
+use rjtd_core::sheet::read_document_sheets;
 use rjtd_core::style_stream::{
     DOCUMENT_VIEW_STYLES_PATH, PAGE_LAYOUT_STYLE_PATH, StyleStreamRecordSummary,
     StyleStreamSubrecordSummary, TEXT_LAYOUT_STYLE_PATH, read_style_streams_with_budget,
@@ -142,6 +144,53 @@ const FRAME_RECORD_HEIGHT_OFFSET: usize = 40;
 const FRAME_RECORD_CORNER_RADIUS_OFFSET: usize = 44;
 const FRAME_RECORD_STYLE_ID_OFFSET: usize = 46;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DocumentSheet {
+    index: usize,
+    name: String,
+    storage_path: String,
+    original_path: Option<String>,
+    text: String,
+}
+
+impl DocumentSheet {
+    pub fn new(
+        index: usize,
+        name: impl Into<String>,
+        storage_path: impl Into<String>,
+        original_path: Option<String>,
+        text: impl Into<String>,
+    ) -> Self {
+        Self {
+            index,
+            name: name.into(),
+            storage_path: storage_path.into(),
+            original_path,
+            text: text.into(),
+        }
+    }
+
+    pub fn index(&self) -> usize {
+        self.index
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn storage_path(&self) -> &str {
+        &self.storage_path
+    }
+
+    pub fn original_path(&self) -> Option<&str> {
+        self.original_path.as_deref()
+    }
+
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Document {
     metadata: Metadata,
@@ -162,6 +211,7 @@ pub struct Document {
     toc_entries: Vec<DocumentTocEntry>,
     page_marks: Vec<DocumentPageMark>,
     paper_marks: Vec<DocumentPaperMark>,
+    sheets: Vec<DocumentSheet>,
 }
 
 impl Document {
@@ -185,6 +235,7 @@ impl Document {
             toc_entries: Vec::new(),
             page_marks: Vec::new(),
             paper_marks: Vec::new(),
+            sheets: Vec::new(),
         }
     }
 
@@ -402,6 +453,38 @@ impl Document {
     pub fn push_paper_mark(&mut self, paper_mark: DocumentPaperMark) {
         self.paper_marks.push(paper_mark);
     }
+
+    pub fn sheets(&self) -> &[DocumentSheet] {
+        &self.sheets
+    }
+
+    pub fn push_sheet(&mut self, sheet: DocumentSheet) {
+        self.sheets.push(sheet);
+    }
+
+    pub fn sheet_plain_text(&self, index: usize) -> Option<&str> {
+        self.sheets.get(index).map(|s| s.text())
+    }
+
+    pub fn sheet_by_name(&self, name: &str) -> Option<&DocumentSheet> {
+        self.sheets.iter().find(|s| s.name() == name)
+    }
+
+    pub fn plain_text(&self) -> String {
+        if self.sheets.len() <= 1 {
+            document_plain_text(self)
+        } else {
+            let mut output = String::new();
+            for (i, sheet) in self.sheets.iter().enumerate() {
+                if i > 0 {
+                    output.push_str("\n\n");
+                }
+                output.push_str(&format!("# {}\n\n", sheet.name()));
+                output.push_str(sheet.text().trim());
+            }
+            output
+        }
+    }
 }
 
 pub trait DocumentParser {
@@ -522,6 +605,35 @@ impl IchitaroParser {
             document.table_candidates().len(),
         ) {
             document.push_table_candidate(candidate);
+        }
+        if let Ok(sheet_infos) = read_document_sheets(data) {
+            if !sheet_infos.is_empty() {
+                for sheet_info in sheet_infos {
+                    let text = if sheet_info.storage_path().is_empty()
+                        || sheet_info.storage_path() == "/"
+                    {
+                        document_plain_text(&document)
+                    } else {
+                        let text_path = sheet_info.document_text_path();
+                        if let Ok(stream_bytes) = read_cfb_stream(data, &text_path) {
+                            parse_document_text(&stream_bytes).plain_text()
+                        } else {
+                            String::new()
+                        }
+                    };
+                    document.push_sheet(DocumentSheet::new(
+                        sheet_info.index(),
+                        sheet_info.name(),
+                        sheet_info.storage_path(),
+                        sheet_info.original_path().map(str::to_string),
+                        text,
+                    ));
+                }
+            }
+        }
+        if document.sheets().is_empty() {
+            let root_text = document_plain_text(&document);
+            document.push_sheet(DocumentSheet::new(0, "タイトル", "", None, root_text));
         }
         Ok(document)
     }

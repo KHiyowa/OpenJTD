@@ -61,6 +61,29 @@ pub(crate) fn run_export(mut args: impl Iterator<Item = String>) -> Result<(), S
     let bytes = read_file(&path)?;
     let document = parse_document(&bytes).map_err(|error| error.to_string())?;
 
+    if let Some(ref sheet_spec) = options.sheet {
+        let sheet = if let Ok(idx) = sheet_spec.parse::<usize>() {
+            document.sheets().get(idx)
+        } else {
+            document.sheet_by_name(sheet_spec)
+        };
+        let Some(sheet) = sheet else {
+            return Err(format!("sheet `{sheet_spec}` not found"));
+        };
+        match options.format.as_str() {
+            "txt" | "text" => write_stdout(sheet.text())?,
+            "md" | "markdown" => {
+                write_stdout_line(&format!("# {}\n\n{}", sheet.name(), sheet.text().trim()))?;
+            }
+            other => {
+                return Err(format!(
+                    "exporting specific sheet with format `{other}` is not supported yet (use text or markdown)"
+                ));
+            }
+        }
+        return Ok(());
+    }
+
     match options.format.as_str() {
         "json" => write_stdout(&to_json(&document))?,
         "md" | "markdown" => write_stdout(&to_markdown(&document))?,

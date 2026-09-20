@@ -4,21 +4,29 @@ use std::path::Path;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ExportOptions {
     pub(crate) format: String,
+    pub(crate) sheet: Option<String>,
     pub(crate) output: Option<String>,
 }
 
 pub(crate) fn export_options(args: impl Iterator<Item = String>) -> Result<ExportOptions, String> {
     let mut format = None;
+    let mut sheet = None;
     let mut output = None;
     let mut args = args.peekable();
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--format" => {
+            "--format" | "-f" => {
                 let Some(value) = args.next() else {
-                    return Err("missing value for `--format`".to_string());
+                    return Err(format!("missing value for `{arg}`"));
                 };
                 format = Some(value);
+            }
+            "--sheet" | "-s" => {
+                let Some(value) = args.next() else {
+                    return Err(format!("missing value for `{arg}`"));
+                };
+                sheet = Some(value);
             }
             "--output" | "-o" => {
                 let Some(value) = args.next() else {
@@ -28,7 +36,7 @@ pub(crate) fn export_options(args: impl Iterator<Item = String>) -> Result<Expor
             }
             other => {
                 return Err(format!(
-                    "unexpected export argument `{other}`; usage: rjtd export <file> --format <json|md|text|html|pdf> [-o output.pdf]"
+                    "unexpected export argument `{other}`; usage: rjtd export <file> [-f|--format <json|md|text|html|pdf>] [-s|--sheet <name|index>] [-o output.pdf]"
                 ));
             }
         }
@@ -36,8 +44,9 @@ pub(crate) fn export_options(args: impl Iterator<Item = String>) -> Result<Expor
 
     Ok(ExportOptions {
         format: format.ok_or_else(|| {
-            "usage: rjtd export <file> --format <json|md|text|html|pdf> [-o output.pdf]".to_string()
+            "usage: rjtd export <file> [-f|--format <json|md|text|html|pdf>] [-s|--sheet <name|index>] [-o output.pdf]".to_string()
         })?,
+        sheet,
         output,
     })
 }

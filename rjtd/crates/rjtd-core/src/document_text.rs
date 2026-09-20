@@ -34,6 +34,8 @@ const INLINE_TEXT_END: u16 = 0x001e;
 // text character ('\n') by is_control_boundary, which intentionally excludes 0x09/0x0a/0x0d.
 const TEXT_ROW_DELIMITER: u16 = 0x000e;
 pub const DOCUMENT_TEXT_PAGE_BREAK_CONTROL: u16 = 0x000c;
+// 0x0010 inside a text run acts as an inline space / formatting boundary control; reading_text stays true across it.
+pub const DOCUMENT_TEXT_INLINE_SPACE_CONTROL: u16 = 0x0010;
 const SKIPPED_INLINE_MAX_UNITS: usize = 256;
 
 // RFC 0009: 0x001c record class codes (decoded:false — structure proven, semantics partial)
@@ -612,8 +614,9 @@ pub fn parse_document_text(data: &[u8]) -> ParsedDocumentText {
                 elements.push(DocumentTextElement::ControlBoundary(
                     DocumentTextControl::new(code),
                 ));
-                reading_text =
-                    code == TEXT_ROW_DELIMITER || code == DOCUMENT_TEXT_PAGE_BREAK_CONTROL;
+                reading_text = code == TEXT_ROW_DELIMITER
+                    || code == DOCUMENT_TEXT_PAGE_BREAK_CONTROL
+                    || code == DOCUMENT_TEXT_INLINE_SPACE_CONTROL;
             } else if let Some(character) = char::from_u32(code as u32) {
                 run.push(character);
             }
@@ -675,8 +678,9 @@ pub fn map_document_text(data: &[u8]) -> DocumentTextMap {
             if is_control_boundary(code) || is_invalid_scalar(code) {
                 push_map_run(&mut entries, &mut run, run_start, index);
                 push_map_control(&mut entries, index, code);
-                reading_text =
-                    code == TEXT_ROW_DELIMITER || code == DOCUMENT_TEXT_PAGE_BREAK_CONTROL;
+                reading_text = code == TEXT_ROW_DELIMITER
+                    || code == DOCUMENT_TEXT_PAGE_BREAK_CONTROL
+                    || code == DOCUMENT_TEXT_INLINE_SPACE_CONTROL;
             } else if let Some(character) = char::from_u32(code as u32) {
                 if run.is_empty() {
                     run_start = index;
@@ -1008,6 +1012,38 @@ mod tests {
         );
         assert_eq!(map.entries()[2].kind(), DocumentTextMapKind::TextRun);
         assert_eq!(map.entries()[2].text(), "二、活版所\n");
+    }
+
+    #[test]
+    fn continues_text_after_inline_space_control_inside_text_run() {
+        let mut bytes = vec![0x00, 0x1f];
+        for unit in "ジョバンニは学校の門を".encode_utf16() {
+            bytes.extend_from_slice(&unit.to_be_bytes());
+        }
+        extend_units(&mut bytes, &[super::DOCUMENT_TEXT_INLINE_SPACE_CONTROL]);
+        for unit in "出るとき\n".encode_utf16() {
+            bytes.extend_from_slice(&unit.to_be_bytes());
+        }
+        extend_units(&mut bytes, &[0x001c]);
+
+        assert_eq!(
+            extract_document_text(&bytes),
+            "ジョバンニは学校の門を出るとき\n"
+        );
+
+        let map = map_document_text(&bytes);
+        assert_eq!(map.entries()[0].kind(), DocumentTextMapKind::TextRun);
+        assert_eq!(map.entries()[0].text(), "ジョバンニは学校の門を");
+        assert_eq!(
+            map.entries()[1].kind(),
+            DocumentTextMapKind::ControlBoundary
+        );
+        assert_eq!(
+            map.entries()[1].code(),
+            Some(super::DOCUMENT_TEXT_INLINE_SPACE_CONTROL)
+        );
+        assert_eq!(map.entries()[2].kind(), DocumentTextMapKind::TextRun);
+        assert_eq!(map.entries()[2].text(), "出るとき\n");
     }
 
     #[test]

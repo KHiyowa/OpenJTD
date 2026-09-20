@@ -13,6 +13,7 @@ pub(crate) mod page_mark;
 pub(crate) mod page_mark_support;
 pub(crate) mod render;
 pub(crate) mod render_support;
+pub(crate) mod sheets;
 pub(crate) mod stream_scan;
 pub(crate) mod style;
 pub(crate) mod style_support;

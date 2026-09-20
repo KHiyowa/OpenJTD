@@ -201,6 +201,7 @@ fn run(args: impl IntoIterator<Item = String>) -> Result<(), String> {
         Some("page-info") => cli::render::run_page_info(args),
         Some("document-info") => cli::render::run_document_info(args),
         Some("page-svg") => cli::render::run_page_svg(args),
+        Some("sheets") => cli::sheets::run_sheets(args),
         Some("export") => cli::render::run_export(args),
         Some(command) => Err(format!("unknown command: {command}")),
     }

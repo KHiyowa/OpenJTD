@@ -363,6 +363,10 @@
     <button id="btn-next" class="btn btn--outline">次 ▶</button>
     <span id="filename" class="toolbar__filename"></span>
     <span id="status" class="toolbar__status"></span>
+    <div id="sheet-selector-wrapper" style="display:none; align-items:center; gap:6px;">
+      <label for="sheet-select" style="font-size:var(--font-size-sm); font-weight:700; color:var(--color-gray-700);">シート:</label>
+      <select id="sheet-select" style="font-family:var(--font-sans); font-size:var(--font-size-sm); padding:4px 8px; border:1px solid var(--color-gray-200); border-radius:var(--radius-sm); background:var(--color-white);"></select>
+    </div>
     <div class="tab-group">
       <button id="tab-svg" class="tab-btn active">ページ表示</button>
       <button id="tab-text" class="tab-btn">テキスト</button>
@@ -382,6 +386,8 @@ let doc = null;
 let currentPage = 0;
 let totalPages = 0;
 let currentTab = 'svg';
+let sheets = [];
+let currentSheetIndex = 0;
 
 async function loadWasm() {
   await init();
@@ -409,7 +415,13 @@ function renderPage() {
 
 function showText() {
   if (!doc) return;
-  document.getElementById('text-container').textContent = doc.plainText();
+  const container = document.getElementById('text-container');
+  if (sheets.length > 1 && typeof doc.getSheetPlainText === 'function') {
+    const text = doc.getSheetPlainText(currentSheetIndex);
+    container.textContent = (text !== undefined && text !== null) ? text : doc.plainText();
+  } else {
+    container.textContent = doc.plainText();
+  }
 }
 
 function switchTab(tab) {
@@ -433,6 +445,31 @@ async function openFile(file) {
     doc.setFileName(file.name);
     totalPages = doc.pageCount();
     currentPage = 0;
+
+    try {
+      const sheetsJson = typeof doc.getSheets === 'function' ? doc.getSheets() : '[]';
+      sheets = JSON.parse(sheetsJson);
+    } catch {
+      sheets = [];
+    }
+
+    const sheetSelectWrapper = document.getElementById('sheet-selector-wrapper');
+    const sheetSelect = document.getElementById('sheet-select');
+    sheetSelect.innerHTML = '';
+
+    if (sheets.length > 1) {
+      sheets.forEach((s, idx) => {
+        const opt = document.createElement('option');
+        opt.value = idx;
+        opt.textContent = `${idx + 1}. ${s.name || `シート${idx + 1}`}`;
+        sheetSelect.appendChild(opt);
+      });
+      sheetSelectWrapper.style.display = 'flex';
+      currentSheetIndex = 0;
+    } else {
+      sheetSelectWrapper.style.display = 'none';
+    }
+
     document.getElementById('filename').textContent = file.name;
     document.getElementById('drop-zone').style.display = 'none';
     document.getElementById('viewer').style.display = 'flex';
@@ -445,6 +482,10 @@ async function openFile(file) {
 
 function resetViewer(status = '') {
   if (doc) { doc.free(); doc = null; }
+  sheets = [];
+  currentSheetIndex = 0;
+  const sheetSelectWrapper = document.getElementById('sheet-selector-wrapper');
+  if (sheetSelectWrapper) sheetSelectWrapper.style.display = 'none';
   document.getElementById('viewer').style.display = 'none';
   document.getElementById('drop-zone').style.display = 'flex';
   document.getElementById('svg-container').innerHTML = '';
@@ -477,6 +518,12 @@ document.getElementById('btn-prev').addEventListener('click', () => {
 });
 document.getElementById('btn-next').addEventListener('click', () => {
   if (currentPage < totalPages - 1) { currentPage++; renderPage(); }
+});
+document.getElementById('sheet-select').addEventListener('change', (e) => {
+  currentSheetIndex = parseInt(e.target.value, 10) || 0;
+  if (currentTab === 'text') {
+    showText();
+  }
 });
 document.getElementById('tab-svg').addEventListener('click', () => switchTab('svg'));
 document.getElementById('tab-text').addEventListener('click', () => switchTab('text'));
