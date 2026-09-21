@@ -582,6 +582,7 @@ pub fn parse_document_text(data: &[u8]) -> ParsedDocumentText {
     let mut reading_text = false;
     let mut has_prose = false;
     let mut index = 0;
+    let mut numbering_state = NumberingState::default();
 
     while index < unit_limit {
         let code = units[index];
@@ -591,6 +592,9 @@ pub fn parse_document_text(data: &[u8]) -> ParsedDocumentText {
                 continue;
             }
             push_run(&mut elements, &mut run);
+            if let Some(prefix) = paragraph_header_prefix(&units, index, &mut numbering_state) {
+                run.push_str(&prefix);
+            }
             reading_text = true;
             has_prose = true;
             index += 1;
@@ -751,6 +755,132 @@ fn push_run(elements: &mut Vec<DocumentTextElement>, run: &mut String) {
         elements.push(DocumentTextElement::TextRun(std::mem::take(run)));
         run.clear();
     }
+}
+
+#[derive(Debug, Default, Clone)]
+struct NumberingState {
+    chapter: usize,
+    section: usize,
+    subsection: usize,
+    list_style: Option<u16>,
+    list_counter: usize,
+    style8_level1_counter: usize,
+    style8_level2_counter: usize,
+}
+
+fn circled_number(n: usize) -> String {
+    const CIRCLED: &[char] = &[
+        '①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩',
+        '⑪', '⑫', '⑬', '⑭', '⑮', '⑯', '⑰', '⑱', '⑲', '⑳',
+    ];
+    if (1..=CIRCLED.len()).contains(&n) {
+        CIRCLED[n - 1].to_string()
+    } else {
+        format!("({})", n)
+    }
+}
+
+fn alpha_number(n: usize) -> String {
+    if (1..=26).contains(&n) {
+        let c = (b'a' + (n - 1) as u8) as char;
+        format!("({})", c)
+    } else {
+        format!("({})", n)
+    }
+}
+
+fn paragraph_header_prefix(
+    units: &[u16],
+    marker_index: usize,
+    state: &mut NumberingState,
+) -> Option<String> {
+    if marker_index < 3 || units[marker_index - 2] != 0x0000 || units[marker_index - 1] != 0x0010 {
+        return None;
+    }
+    let total_len = units[marker_index - 3] as usize;
+    if total_len < 4 || marker_index + 1 < total_len {
+        return None;
+    }
+    let start = (marker_index + 1) - total_len;
+    if units[start] != 0x001c || units[start + 1] != 0x0010 || units[start + 2] != total_len as u16 {
+        return None;
+    }
+    let header = &units[start..=marker_index];
+
+    let a3_opt = header.windows(3).find_map(|w| {
+        if w[0] == 0x00a3 && w[1] == 0x0002 {
+            Some(w[2])
+        } else {
+            None
+        }
+    });
+    let level_50 = header.windows(3).find_map(|w| {
+        if w[0] == 0x0050 && w[1] == 0x0002 {
+            Some(w[2])
+        } else {
+            None
+        }
+    });
+
+    if let Some(style) = a3_opt {
+        if style == 1 && level_50.is_some() {
+            state.list_style = None;
+            state.list_counter = 0;
+            let level = level_50.unwrap();
+            let prefix = match level {
+                1 => {
+                    state.chapter += 1;
+                    state.section = 0;
+                    state.subsection = 0;
+                    format!("第{}章 ", state.chapter)
+                }
+                2 => {
+                    state.section += 1;
+                    state.subsection = 0;
+                    format!("{}.{} ", state.chapter, state.section)
+                }
+                3 => {
+                    state.subsection += 1;
+                    format!("{}.{}.{} ", state.chapter, state.section, state.subsection)
+                }
+                _ => format!("(level {}) ", level),
+            };
+            return Some(prefix);
+        } else if style == 8 {
+            let level = level_50.unwrap_or(1);
+            if level == 1 {
+                state.style8_level1_counter += 1;
+                state.style8_level2_counter = 0;
+                return Some(format!("{} ", circled_number(state.style8_level1_counter)));
+            } else {
+                state.style8_level2_counter += 1;
+                let sym = circled_number(state.style8_level1_counter);
+                return Some(format!("{}-{} ", sym, state.style8_level2_counter));
+            }
+        } else if [2, 3, 4].contains(&style) {
+            let is_restart = header.windows(4).any(|w| {
+                w[0] == 0x00a3 && w[1] == 0x0002 && w[2] == style && w[3] == 0x7fff
+            });
+            if state.list_style != Some(style) || is_restart {
+                state.list_style = Some(style);
+                state.list_counter = 1;
+            } else {
+                state.list_counter += 1;
+            }
+            let prefix = match style {
+                2 => format!("({}) ", state.list_counter),
+                3 => format!("{} ", alpha_number(state.list_counter)),
+                4 => format!("{}. ", state.list_counter),
+                _ => unreachable!(),
+            };
+            return Some(prefix);
+        }
+    } else {
+        state.list_style = None;
+        state.list_counter = 0;
+    }
+
+    None
 }
 
 fn is_control_boundary(code: u16) -> bool {
@@ -1779,6 +1909,7 @@ mod tests {
             );
         }
     }
+
     #[test]
     fn trims_trailing_exposed_terminal_controls_from_plain_text() {
         // Unit tests must not embed thesis text; using an Aozora Bunko "Night on the
@@ -1876,6 +2007,101 @@ mod tests {
                 && !plain.contains('\u{0302}')
                 && !plain.contains('\u{03FF}'),
             "isolated marker in trailing metadata should not produce text elements, got: {plain:?}"
+        );
+    }
+
+    #[test]
+    fn restores_heading_and_itemization_numbering_from_paragraph_headers() {
+        let mut content = Vec::new();
+
+        // Heading Level 1 (Chapter): 午后の授業
+        content.extend_from_slice(&[
+            0x001c, 0x0010, 0x0011, 0x0000, 0x00a3, 0x0002, 0x0001, 0xffff, 0x0050, 0x0002,
+            0x0001, 0xffff, 0x0000, 0x0011, 0x0000, 0x0010, 0x001f,
+        ]);
+        content.extend("午后の授業\n".encode_utf16());
+
+        // Heading Level 2 (Section): 星座の図
+        content.extend_from_slice(&[
+            0x001c, 0x0010, 0x0011, 0x0000, 0x00a3, 0x0002, 0x0001, 0xffff, 0x0050, 0x0002,
+            0x0002, 0xffff, 0x0000, 0x0011, 0x0000, 0x0010, 0x001f,
+        ]);
+        content.extend("星座の図\n".encode_utf16());
+
+        // Heading Level 3 (Subsection): 銀河の巨きな星
+        content.extend_from_slice(&[
+            0x001c, 0x0010, 0x0011, 0x0000, 0x00a3, 0x0002, 0x0001, 0xffff, 0x0050, 0x0002,
+            0x0003, 0xffff, 0x0000, 0x0011, 0x0000, 0x0010, 0x001f,
+        ]);
+        content.extend("銀河の巨きな星\n".encode_utf16());
+
+        // Itemization Style 2, item 1 (restart)
+        content.extend_from_slice(&[
+            0x001c, 0x0010, 0x0011, 0x0000, 0x00a3, 0x0002, 0x0002, 0x7fff, 0x00a4, 0x0001,
+            0x001d, 0xffff, 0x0000, 0x0011, 0x0000, 0x0010, 0x001f,
+        ]);
+        content.extend("ジョバンニは手をあげようとして、急いでそれをやめました。\n".encode_utf16());
+
+        // Itemization Style 2, item 2
+        content.extend_from_slice(&[
+            0x001c, 0x0010, 0x0011, 0x0000, 0x00a3, 0x0002, 0x0002, 0xffff, 0x00a4, 0x0001,
+            0x001d, 0xffff, 0x0000, 0x0011, 0x0000, 0x0010, 0x001f,
+        ]);
+        content.extend("カムパネルラが手をあげました。\n".encode_utf16());
+
+        // Circled numbers Style 8: level 1
+        content.extend_from_slice(&[
+            0x001c, 0x0010, 0x0011, 0x0000, 0x00a3, 0x0002, 0x0008, 0xffff, 0x0050, 0x0002,
+            0x0001, 0xffff, 0x0000, 0x0011, 0x0000, 0x0010, 0x001f,
+        ]);
+        content.extend("カムパネルラ\n".encode_utf16());
+
+        // Circled numbers Style 8: level 2
+        content.extend_from_slice(&[
+            0x001c, 0x0010, 0x0011, 0x0000, 0x00a3, 0x0002, 0x0008, 0xffff, 0x0050, 0x0002,
+            0x0002, 0xffff, 0x0000, 0x0011, 0x0000, 0x0010, 0x001f,
+        ]);
+        content.extend("ジョバンニ\n".encode_utf16());
+
+        let content_unit_count = content.len() as u32;
+        let mut data = Vec::new();
+        // SsmgV.01 header
+        data.extend_from_slice(b"SsmgV.01");
+        extend_units(&mut data, &[0x0000, 0x0001, 0x0000, 0x0100, 0x0000, 0x0027]);
+        data.extend_from_slice(b"TextV.01");
+        data.extend_from_slice(&content_unit_count.to_be_bytes());
+        extend_units(&mut data, &content);
+
+        let parsed = parse_document_text(&data);
+        let plain = parsed.plain_text();
+
+        assert!(
+            plain.contains("第1章 午后の授業"),
+            "expected chapter 1 prefix, got: {plain}"
+        );
+        assert!(
+            plain.contains("1.1 星座の図"),
+            "expected section 1.1 prefix, got: {plain}"
+        );
+        assert!(
+            plain.contains("1.1.1 銀河の巨きな星"),
+            "expected subsection 1.1.1 prefix, got: {plain}"
+        );
+        assert!(
+            plain.contains("(1) ジョバンニは手をあげようとして、急いでそれをやめました。"),
+            "expected itemization (1) prefix, got: {plain}"
+        );
+        assert!(
+            plain.contains("(2) カムパネルラが手をあげました。"),
+            "expected itemization (2) prefix, got: {plain}"
+        );
+        assert!(
+            plain.contains("① カムパネルラ"),
+            "expected circled number ① prefix, got: {plain}"
+        );
+        assert!(
+            plain.contains("①-1 ジョバンニ"),
+            "expected circled number ①-1 prefix, got: {plain}"
         );
     }
 }
