@@ -580,13 +580,19 @@ pub fn parse_document_text(data: &[u8]) -> ParsedDocumentText {
     let mut elements = Vec::new();
     let mut run = String::new();
     let mut reading_text = false;
+    let mut has_prose = false;
     let mut index = 0;
 
     while index < unit_limit {
         let code = units[index];
         if code == TEXT_RUN_MARKER {
+            if !is_document_text_run_start(&units, index, has_prose) {
+                index += 1;
+                continue;
+            }
             push_run(&mut elements, &mut run);
             reading_text = true;
+            has_prose = true;
             index += 1;
             continue;
         }
@@ -596,6 +602,7 @@ pub fn parse_document_text(data: &[u8]) -> ParsedDocumentText {
             reading_text = false;
             if let Some(selector) = inline_text_selector(&units, index) {
                 index = push_inline_segment(&mut elements, &units, index, selector);
+                has_prose = true;
             } else if skipped_inline_selector(&units, index).is_some()
                 && let Some((segment, next_index)) = read_skipped_inline_segment(&units, index)
             {
@@ -621,6 +628,7 @@ pub fn parse_document_text(data: &[u8]) -> ParsedDocumentText {
                     || code == DOCUMENT_TEXT_INLINE_SPACE_CONTROL;
             } else if let Some(character) = char::from_u32(code as u32) {
                 run.push(character);
+                has_prose = true;
             }
         }
 
@@ -643,13 +651,19 @@ pub fn map_document_text(data: &[u8]) -> DocumentTextMap {
     let mut run = String::new();
     let mut run_start = 0usize;
     let mut reading_text = false;
+    let mut has_prose = false;
     let mut index = 0;
 
     while index < unit_limit {
         let code = units[index];
         if code == TEXT_RUN_MARKER {
+            if !is_document_text_run_start(&units, index, has_prose) {
+                index += 1;
+                continue;
+            }
             push_map_run(&mut entries, &mut run, run_start, index);
             reading_text = true;
+            has_prose = true;
             index += 1;
             continue;
         }
@@ -659,6 +673,7 @@ pub fn map_document_text(data: &[u8]) -> DocumentTextMap {
             reading_text = false;
             if let Some(selector) = inline_text_selector(&units, index) {
                 index = push_mapped_inline_segment(&mut entries, &units, index, selector);
+                has_prose = true;
             } else if skipped_inline_selector(&units, index).is_some()
                 && let Some((segment, next_index)) = read_skipped_inline_segment(&units, index)
             {
@@ -685,11 +700,13 @@ pub fn map_document_text(data: &[u8]) -> DocumentTextMap {
                 reading_text = code == TEXT_ROW_DELIMITER
                     || code == DOCUMENT_TEXT_PAGE_BREAK_CONTROL
                     || code == DOCUMENT_TEXT_INLINE_SPACE_CONTROL;
+                run_start = index + 1;
             } else if let Some(character) = char::from_u32(code as u32) {
                 if run.is_empty() {
                     run_start = index;
                 }
                 run.push(character);
+                has_prose = true;
             }
         }
 
@@ -966,6 +983,80 @@ fn units_to_be_bytes(units: &[u16]) -> Vec<u8> {
         bytes.extend_from_slice(&unit.to_be_bytes());
     }
     bytes
+}
+
+// Structural check for an incoming TEXT_RUN_MARKER (0x001f). A marker starts a text run only
+// when ONE of the following holds:
+//  1. No prose has been read yet (stream head) — synthetic head markers and the first content
+//     run are always accepted.
+//  2. It terminates a well-formed RFC 0009 `0x001c` record header
+//     (`[..] [len](=i-3) 0x0000 [class](=i-1) 0x001f` where the opener/class/len triple at
+//     `start = i + 1 - len` re-echoes consistently) — the record terminator doubles as the start
+//     of the following run.
+//  3. The immediately preceding unit is `0x001e` (inline text terminator) — the 0x001d inline
+//     form is consumed by the inline reader, so a marker right after 0x001e is the following run.
+//  4. A `0x001c` record opener appears within the previous 12 units — a record body can carry a
+//     short (`len < 4`) or malformed footer; the run still starts once the record opened.
+//  5. The stream is still within its first 16 units and no `0x001c`/`0x001f` precedes it.
+//
+// Any other `0x001f` is an isolated binary `31` value in the trailing style-table/metadata area
+// (observed at word 76819 of 計画交通課パブコメ2025.jtd) and must not start a text run.
+fn is_document_text_run_start(units: &[u16], index: usize, has_prose: bool) -> bool {
+    if !has_prose {
+        return true;
+    }
+    if rfc0009_record_footer_at(units, index) {
+        return true;
+    }
+    if index > 0
+        && (units[index - 1] == INLINE_TEXT_END || units[index - 1] == INLINE_TEXT_START)
+    {
+        return true;
+    }
+    if index >= 4 && units[index - 4] == INLINE_TEXT_END {
+        return true;
+    }
+    if units[index.saturating_sub(12)..index].contains(&0x001c) {
+        return true;
+    }
+    index <= 16 && !units[..index].iter().any(|&unit| unit == 0x001c || unit == 0x001f)
+}
+
+/// Returns true when the unit at `index` is a `0x001f` that forms a self-consistent RFC 0009
+/// record footer terminator:
+/// ```text
+/// units[ index - 3 ] = len      (total record length in words, includes opener + footer + marker)
+/// units[ index - 2 ] = 0x0000
+/// units[ index - 1 ] = class    (a known RFC 0009 class code)
+/// units[ index ]     = 0x001f   (marker under check)
+/// units[ start ]     = 0x001c   (opener, start = index + 1 - len)
+/// units[ start + 1 ] = class    (echo)
+/// units[ start + 2 ] = len      (echo)
+/// ```
+/// The opener/class/len re-echo check is the structural proof that this `0x001f` is a record
+/// terminator (hence the following run's start) rather than an isolated binary `31` value.
+fn rfc0009_record_footer_at(units: &[u16], index: usize) -> bool {
+    const KNOWN_CLASSES: &[u16] = &[
+        RECORD_CLASS_INLINE_CONTEXT,
+        RECORD_CLASS_PARAGRAPH_LINE,
+        RECORD_CLASS_TABLE_SECTION_TRANSITION,
+        RECORD_CLASS_TABLE_CELL,
+    ];
+    if index < 4 || units[index - 2] != 0x0000 {
+        return false;
+    }
+    let class = units[index - 1];
+    if !KNOWN_CLASSES.contains(&class) {
+        return false;
+    }
+    let total_len = units[index - 3] as usize;
+    if total_len < 4 || total_len > index + 1 {
+        return false;
+    }
+    let start = index + 1 - total_len;
+    units.get(start) == Some(&0x001c)
+        && units.get(start + 1) == Some(&class)
+        && units.get(start + 2) == Some(&(total_len as u16))
 }
 
 #[cfg(test)]
@@ -1755,5 +1846,36 @@ mod tests {
         let parsed = parse_document_text(&bytes);
         let plain = parsed.plain_text();
         assert_eq!(plain, "銀河\u{0400}鉄道");
+    }
+
+    #[test]
+    fn parses_document_text_ignores_isolated_text_marker_in_trailing_metadata() {
+        // A trailing 0x001f appearing in metadata/footer without an RFC 0009 record header
+        // should not start a text run, structurally preventing trailing binary data from leaking as prose.
+        let mut bytes = b"SsmgV.01".to_vec();
+        bytes.extend_from_slice(&[0x00, 0x1f]);
+        for unit in "ジョバンニ".encode_utf16() {
+            bytes.extend_from_slice(&unit.to_be_bytes());
+        }
+        // Terminal row delimiter / end of text run
+        bytes.extend_from_slice(&0x000eu16.to_be_bytes());
+        bytes.extend_from_slice(&0x0000u16.to_be_bytes());
+        // Trailing metadata with non-record padding followed by an isolated 0x001f marker
+        bytes.extend_from_slice(&[0x12, 0x34, 0x56, 0x78]);
+        bytes.extend_from_slice(&0x001fu16.to_be_bytes());
+        for unit in [0xfe01u16, 0x0200, 0x0302, 0x0200, 0x03ff, 0x0000] {
+            bytes.extend_from_slice(&unit.to_be_bytes());
+        }
+
+        let parsed = parse_document_text(&bytes);
+        let plain = parsed.plain_text();
+        assert_eq!(plain.trim(), "ジョバンニ");
+        assert!(
+            !plain.contains('\u{FE01}')
+                && !plain.contains('\u{0200}')
+                && !plain.contains('\u{0302}')
+                && !plain.contains('\u{03FF}'),
+            "isolated marker in trailing metadata should not produce text elements, got: {plain:?}"
+        );
     }
 }
