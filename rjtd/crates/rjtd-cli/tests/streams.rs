@@ -3,6 +3,8 @@ mod support;
 
 #[path = "streams/container.rs"]
 mod container;
+#[path = "streams/markerless_raw.rs"]
+mod markerless_raw;
 #[path = "streams/line_mark.rs"]
 mod line_mark;
 #[path = "streams/object_fdm.rs"]
