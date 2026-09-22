@@ -43,6 +43,9 @@ pub const RECORD_CLASS_INLINE_CONTEXT: u16 = 0x0000;
 pub const RECORD_CLASS_PARAGRAPH_LINE: u16 = 0x0010;
 pub const RECORD_CLASS_TABLE_SECTION_TRANSITION: u16 = 0x0020;
 pub const RECORD_CLASS_TABLE_CELL: u16 = 0x0030;
+// RFC 0009: 0x001c record start marker (レコード開始マーカー). Unlike RECORD_CLASS_*
+// (class codes that follow it), 0x001c opens a record, so it is kept as a separate constant.
+pub const RECORD_START_MARKER: u16 = 0x001c;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ParsedDocumentText {
@@ -556,15 +559,22 @@ fn document_text_unit_limit(data: &[u8]) -> Option<usize> {
 pub fn parse_document_text(data: &[u8]) -> ParsedDocumentText {
     // SsmgV.01 w[9]=0x0001: single raw-text segment (no 0x001f paragraph markers).
     // Layout: SsmgV.01 header (10 words) + TextV.01 name (4 words) + length (2 words) + text.
+    // 実原本（官公庁テンプレート）には w[9]=0x0003..=0x000b のマーカーレス raw 型も存在する
+    // （needs-doc-pdf-conversion 調査、REPORT.md 案1）。
     if data.starts_with(DOCUMENT_TEXT_MAGIC) {
         let units: Vec<u16> = data
             .chunks_exact(2)
             .map(|chunk| u16::from_be_bytes([chunk[0], chunk[1]]))
             .collect();
-        if units.get(9) == Some(&SSMG_RAW_TEXT_SEGMENT_COUNT)
-            && data
-                .get(SSMG_HEADER_WORDS * 2..)
-                .is_some_and(|rest| rest.starts_with(TEXT_SEGMENT_NAME))
+        // 既存ゲート（w[9]==0x0001 と TextV.01 プレフィックス）を維持しつつ、
+        // 実原本に存在するマーカーレス raw 型（w[9] が 0x0003 以降）も通す。
+        // マーカー型（通常）ファイルは本文領域に 0x001c/0x001d/0x001f を含むため
+        // is_markerless_raw_text_span() に落ちず、通常パスの挙動は不変（リグレッションガード）。
+        if data
+            .get(SSMG_HEADER_WORDS * 2..)
+            .is_some_and(|rest| rest.starts_with(TEXT_SEGMENT_NAME))
+            && (units.get(9) == Some(&SSMG_RAW_TEXT_SEGMENT_COUNT)
+                || is_markerless_raw_text_span(&units))
         {
             return parse_raw_text_segment(&units);
         }
@@ -717,8 +727,28 @@ pub fn map_document_text(data: &[u8]) -> DocumentTextMap {
     DocumentTextMap::new(entries)
 }
 
+// マーカーレス raw テキスト型（w[9] が 0x0001 より大きい実原本）の識別。
+// TextV.01 セグメント内の word 15 が本文長（word 数）であり、本文領域
+// units[16..16+len] に RFC 0009 のマーカー 0x001c/0x001d/0x001f が一切含まれない
+// ときのみ raw デコードする。マーカー型ファイルは本文にマーカーを含むため
+// ここの条件を満たさず、通常パスの挙動は不変となる（リグレッションガード）。
+fn is_markerless_raw_text_span(units: &[u16]) -> bool {
+    units.len() >= 16
+        && units[14] == 0x0000
+        && 0 < units[15] as usize
+            && units[15] as usize <= units.len() - 16
+        && units[16..16 + units[15] as usize]
+            .iter()
+            .all(|&code| {
+                code != RECORD_START_MARKER
+                    && code != INLINE_TEXT_START
+                    && code != TEXT_RUN_MARKER
+            })
+}
+
 // Parse a SsmgV.01 w[9]=0x0001 raw-text segment: TextV.01 header (14..16) gives
 // the word count, then the text follows as plain UTF-16BE with no 0x001f markers.
+// w[9]>1 のマーカーレス raw 型（is_markerless_raw_text_span で識別）も同一レイアウトで通す。
 fn parse_raw_text_segment(units: &[u16]) -> ParsedDocumentText {
     // Layout: SSMG_HEADER_WORDS=10 + TextV.01 name (4) + length field (2) = 16 words header
     const HEADER_WORDS: usize = SSMG_HEADER_WORDS + 4 + 2;
