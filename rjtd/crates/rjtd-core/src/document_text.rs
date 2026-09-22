@@ -43,6 +43,9 @@ pub const RECORD_CLASS_INLINE_CONTEXT: u16 = 0x0000;
 pub const RECORD_CLASS_PARAGRAPH_LINE: u16 = 0x0010;
 pub const RECORD_CLASS_TABLE_SECTION_TRANSITION: u16 = 0x0020;
 pub const RECORD_CLASS_TABLE_CELL: u16 = 0x0030;
+// RFC 0009: 0x001c record start marker (レコード開始マーカー). Unlike RECORD_CLASS_*
+// (class codes that follow it), 0x001c opens a record, so it is kept as a separate constant.
+pub const RECORD_START_MARKER: u16 = 0x001c;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ParsedDocumentText {
@@ -556,15 +559,22 @@ fn document_text_unit_limit(data: &[u8]) -> Option<usize> {
 pub fn parse_document_text(data: &[u8]) -> ParsedDocumentText {
     // SsmgV.01 w[9]=0x0001: single raw-text segment (no 0x001f paragraph markers).
     // Layout: SsmgV.01 header (10 words) + TextV.01 name (4 words) + length (2 words) + text.
+    // 実原本（官公庁テンプレート）には w[9]=0x0003..=0x000b のマーカーレス raw 型も存在する
+    // （needs-doc-pdf-conversion 調査、REPORT.md 案1）。
     if data.starts_with(DOCUMENT_TEXT_MAGIC) {
         let units: Vec<u16> = data
             .chunks_exact(2)
             .map(|chunk| u16::from_be_bytes([chunk[0], chunk[1]]))
             .collect();
-        if units.get(9) == Some(&SSMG_RAW_TEXT_SEGMENT_COUNT)
-            && data
-                .get(SSMG_HEADER_WORDS * 2..)
-                .is_some_and(|rest| rest.starts_with(TEXT_SEGMENT_NAME))
+        // 既存ゲート（w[9]==0x0001 と TextV.01 プレフィックス）を維持しつつ、
+        // 実原本に存在するマーカーレス raw 型（w[9] が 0x0003 以降）も通す。
+        // マーカー型（通常）ファイルは本文領域に 0x001c/0x001d/0x001f を含むため
+        // is_markerless_raw_text_span() に落ちず、通常パスの挙動は不変（リグレッションガード）。
+        if data
+            .get(SSMG_HEADER_WORDS * 2..)
+            .is_some_and(|rest| rest.starts_with(TEXT_SEGMENT_NAME))
+            && (units.get(9) == Some(&SSMG_RAW_TEXT_SEGMENT_COUNT)
+                || is_markerless_raw_text_span(&units))
         {
             return parse_raw_text_segment(&units);
         }
@@ -721,8 +731,28 @@ pub fn map_document_text(data: &[u8]) -> DocumentTextMap {
     DocumentTextMap::new(entries)
 }
 
+// マーカーレス raw テキスト型（w[9] が 0x0001 より大きい実原本）の識別。
+// TextV.01 セグメント内の word 15 が本文長（word 数）であり、本文領域
+// units[16..16+len] に RFC 0009 のマーカー 0x001c/0x001d/0x001f が一切含まれない
+// ときのみ raw デコードする。マーカー型ファイルは本文にマーカーを含むため
+// ここの条件を満たさず、通常パスの挙動は不変となる（リグレッションガード）。
+fn is_markerless_raw_text_span(units: &[u16]) -> bool {
+    units.len() >= 16
+        && units[14] == 0x0000
+        && 0 < units[15] as usize
+            && units[15] as usize <= units.len() - 16
+        && units[16..16 + units[15] as usize]
+            .iter()
+            .all(|&code| {
+                code != RECORD_START_MARKER
+                    && code != INLINE_TEXT_START
+                    && code != TEXT_RUN_MARKER
+            })
+}
+
 // Parse a SsmgV.01 w[9]=0x0001 raw-text segment: TextV.01 header (14..16) gives
 // the word count, then the text follows as plain UTF-16BE with no 0x001f markers.
+// w[9]>1 のマーカーレス raw 型（is_markerless_raw_text_span で識別）も同一レイアウトで通す。
 fn parse_raw_text_segment(units: &[u16]) -> ParsedDocumentText {
     // Layout: SSMG_HEADER_WORDS=10 + TextV.01 name (4) + length field (2) = 16 words header
     const HEADER_WORDS: usize = SSMG_HEADER_WORDS + 4 + 2;
@@ -1651,6 +1681,88 @@ mod tests {
             "should contain 'sto' but got: {text:?}"
         );
         assert!(text.contains('て'), "should contain 'て' but got: {text:?}");
+    }
+
+    // ---- markerless raw body (w[9] > 1): red tests for needs-doc-pdf-conversion ----
+    //
+    // 2026-09-22 の調査（rjtd-testdata/local-samples/gov-web-jtd/needs-doc-pdf-conversion/
+    // REPORT.md）で判明した「マーカーレス raw テキスト型」のサイレント脱落。
+    // 官公庁の原本本文は使わず、宮沢賢治「銀河鉄道の夜」（青空文庫、パブリックドメイン、
+    // https://www.aozora.gr.jp/cards/000081/files/456_15050.html よりふりがなを除去）
+    // を本文として合成する。
+    //
+    // レイアウト（REPORT.md と同一語義、word 単位）:
+    //   w[0..9]   SsmgV.01 + ヘッダ + w[9]=内部セグメント数（本ケースでは >1）
+    //   w[10..13] "TextV.01"
+    //   w[14]     0x0000
+    //   w[15]     本文長（word 数）
+    //   w[16..]   本文（UTF-16BE 生・0x001f/0x001d/0x001c マーカー無し）
+    //
+    // 現行実装は raw パスのゲートを w[9]==0x0001 に限定しているため本文に到達できず、
+    // plain_text() が空になる（期待: 本文全文）。修正案は REPORT.md 案1 参照。
+    fn markerless_raw_payload(segment_count: u16, text: &str, tail: &[u16]) -> Vec<u8> {
+        let text_content: Vec<u16> = text.encode_utf16().collect();
+        let length = text_content.len() as u16;
+        let mut payload: Vec<u8> = Vec::new();
+        // SsmgV.01 header (10 words): magic + 4 header words + segment-count (2 words)
+        extend_units(
+            &mut payload,
+            &[
+                0x5373, 0x6d67, 0x562e, 0x3031, 0x0000, 0x0001, 0x0000, 0x0100, 0x0000,
+                segment_count,
+            ],
+        );
+        // TextV.01 segment name (4 words)
+        extend_units(&mut payload, &[0x5465, 0x7874, 0x562e, 0x3031]);
+        // Text span header: word[14]=0x0000, word[15]=本文長
+        extend_units(&mut payload, &[0x0000, length]);
+        // マーカーレスの UTF-16BE 本文
+        extend_units(&mut payload, &text_content);
+        extend_units(&mut payload, tail);
+        payload
+    }
+
+    const GALAXY_P1: &str = "「ではみなさんは、そういうふうに川だと云われたり、乳の流れたあとだと云われたりしていたこのぼんやりと白いものがほんとうは何かご承知ですか。」先生は、黒板に吊した大きな黒い星座の図の、上から下へ白くけぶった銀河帯のようなところを指しながら、みんなに問をかけました。";
+
+    const GALAXY_P2: &str = "カムパネルラが手をあげました。それから四五人手をあげました。ジョバンニも手をあげようとして、急いでそのままやめました。たしかにあれがみんな星だと、いつか雑誌で読んだのでしたが、このごろはジョバンニはまるで毎日教室でもねむく、本を読むひまも読む本もないので、なんだかどんなこともよくわからないという気持ちがするのでした。";
+
+    const GALAXY_P3: &str = "ところが先生は早くもそれを見つけたのでした。";
+
+    const GALAXY_P4: &str = "「ですからもしもこの天の川がほんとうに川だと考えるなら、その一つ一つの小さな星はみんなその川のそこの砂や砂利の粒にもあたるわけです。」";
+
+    #[test]
+    fn markerless_raw_body_recovers_text_when_segment_count_exceeds_one() {
+        // 官公庁原本4件の直撃型（w[9]=0x0003..0x000b）を模す合成ペイロード。
+        // 本文領域にマーカーが一切無く、raw ゲート（w[9]==1）を通過できないため
+        // 現行実装では空文字になる。期待: 改行を含む本文全文の完全一致。
+        let text = format!("{GALAXY_P1}\n{GALAXY_P2}");
+        let payload = markerless_raw_payload(0x0004, &text, &[]);
+
+        let parsed = parse_document_text(&payload);
+
+        assert_eq!(
+            parsed.plain_text(),
+            text,
+            "マーカーレス raw 本文（銀河鉄道の夜）が復元できない"
+        );
+    }
+
+    #[test]
+    fn markerless_raw_body_ignores_stray_run_marker_beyond_text_span() {
+        // env-youshi.jtd 型: 本文領域 [16, 16+本文長) にマーカーは無く、
+        // span 終端を過ぎた余白領域に孤立した 0x001f と末尾ノイズが存在する。
+        // 孤立マーカーに惑わされず、span 内の本文だけを復元すること。
+        let text = format!("{GALAXY_P3}\n{GALAXY_P4}");
+        let tail: &[u16] = &[0xffff, 0xffff, 0x0000, 0x000a, 0x001f, 0x3000, 0x74b0];
+        let payload = markerless_raw_payload(0x000b, &text, tail);
+
+        let parsed = parse_document_text(&payload);
+
+        assert_eq!(
+            parsed.plain_text(),
+            text,
+            "span 外の孤立 0x001f があっても本文全文を復元しなければならない"
+        );
     }
 
     #[test]

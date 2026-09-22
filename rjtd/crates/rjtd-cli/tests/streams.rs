@@ -7,6 +7,8 @@ mod container;
 mod footnote;
 #[path = "streams/line_mark.rs"]
 mod line_mark;
+#[path = "streams/markerless_raw.rs"]
+mod markerless_raw;
 #[path = "streams/object_fdm.rs"]
 mod object_fdm;
 #[path = "streams/object_stream.rs"]
