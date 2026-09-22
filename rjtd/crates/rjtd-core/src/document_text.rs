@@ -1523,6 +1523,88 @@ mod tests {
         assert!(text.contains('て'), "should contain 'て' but got: {text:?}");
     }
 
+    // ---- markerless raw body (w[9] > 1): red tests for needs-doc-pdf-conversion ----
+    //
+    // 2026-09-22 の調査（rjtd-testdata/local-samples/gov-web-jtd/needs-doc-pdf-conversion/
+    // REPORT.md）で判明した「マーカーレス raw テキスト型」のサイレント脱落。
+    // 官公庁の原本本文は使わず、宮沢賢治「銀河鉄道の夜」（青空文庫、パブリックドメイン、
+    // https://www.aozora.gr.jp/cards/000081/files/456_15050.html よりふりがなを除去）
+    // を本文として合成する。
+    //
+    // レイアウト（REPORT.md と同一語義、word 単位）:
+    //   w[0..9]   SsmgV.01 + ヘッダ + w[9]=内部セグメント数（本ケースでは >1）
+    //   w[10..13] "TextV.01"
+    //   w[14]     0x0000
+    //   w[15]     本文長（word 数）
+    //   w[16..]   本文（UTF-16BE 生・0x001f/0x001d/0x001c マーカー無し）
+    //
+    // 現行実装は raw パスのゲートを w[9]==0x0001 に限定しているため本文に到達できず、
+    // plain_text() が空になる（期待: 本文全文）。修正案は REPORT.md 案1 参照。
+    fn markerless_raw_payload(segment_count: u16, text: &str, tail: &[u16]) -> Vec<u8> {
+        let text_content: Vec<u16> = text.encode_utf16().collect();
+        let length = text_content.len() as u16;
+        let mut payload: Vec<u8> = Vec::new();
+        // SsmgV.01 header (10 words): magic + 4 header words + segment-count (2 words)
+        extend_units(
+            &mut payload,
+            &[
+                0x5373, 0x6d67, 0x562e, 0x3031, 0x0000, 0x0001, 0x0000, 0x0100, 0x0000,
+                segment_count,
+            ],
+        );
+        // TextV.01 segment name (4 words)
+        extend_units(&mut payload, &[0x5465, 0x7874, 0x562e, 0x3031]);
+        // Text span header: word[14]=0x0000, word[15]=本文長
+        extend_units(&mut payload, &[0x0000, length]);
+        // マーカーレスの UTF-16BE 本文
+        extend_units(&mut payload, &text_content);
+        extend_units(&mut payload, tail);
+        payload
+    }
+
+    const GALAXY_P1: &str = "「ではみなさんは、そういうふうに川だと云われたり、乳の流れたあとだと云われたりしていたこのぼんやりと白いものがほんとうは何かご承知ですか。」先生は、黒板に吊した大きな黒い星座の図の、上から下へ白くけぶった銀河帯のようなところを指しながら、みんなに問をかけました。";
+
+    const GALAXY_P2: &str = "カムパネルラが手をあげました。それから四五人手をあげました。ジョバンニも手をあげようとして、急いでそのままやめました。たしかにあれがみんな星だと、いつか雑誌で読んだのでしたが、このごろはジョバンニはまるで毎日教室でもねむく、本を読むひまも読む本もないので、なんだかどんなこともよくわからないという気持ちがするのでした。";
+
+    const GALAXY_P3: &str = "ところが先生は早くもそれを見つけたのでした。";
+
+    const GALAXY_P4: &str = "「ですからもしもこの天の川がほんとうに川だと考えるなら、その一つ一つの小さな星はみんなその川のそこの砂や砂利の粒にもあたるわけです。」";
+
+    #[test]
+    fn markerless_raw_body_recovers_text_when_segment_count_exceeds_one() {
+        // 官公庁原本4件の直撃型（w[9]=0x0003..0x000b）を模す合成ペイロード。
+        // 本文領域にマーカーが一切無く、raw ゲート（w[9]==1）を通過できないため
+        // 現行実装では空文字になる。期待: 改行を含む本文全文の完全一致。
+        let text = format!("{GALAXY_P1}\n{GALAXY_P2}");
+        let payload = markerless_raw_payload(0x0004, &text, &[]);
+
+        let parsed = parse_document_text(&payload);
+
+        assert_eq!(
+            parsed.plain_text(),
+            text,
+            "マーカーレス raw 本文（銀河鉄道の夜）が復元できない"
+        );
+    }
+
+    #[test]
+    fn markerless_raw_body_ignores_stray_run_marker_beyond_text_span() {
+        // env-youshi.jtd 型: 本文領域 [16, 16+本文長) にマーカーは無く、
+        // span 終端を過ぎた余白領域に孤立した 0x001f と末尾ノイズが存在する。
+        // 孤立マーカーに惑わされず、span 内の本文だけを復元すること。
+        let text = format!("{GALAXY_P3}\n{GALAXY_P4}");
+        let tail: &[u16] = &[0xffff, 0xffff, 0x0000, 0x000a, 0x001f, 0x3000, 0x74b0];
+        let payload = markerless_raw_payload(0x000b, &text, tail);
+
+        let parsed = parse_document_text(&payload);
+
+        assert_eq!(
+            parsed.plain_text(),
+            text,
+            "span 外の孤立 0x001f があっても本文全文を復元しなければならない"
+        );
+    }
+
     #[test]
     fn parses_row_header_inventory_as_state_run_pairs() {
         let payload = row_header_record_bytes(
