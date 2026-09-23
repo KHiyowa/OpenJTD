@@ -53,7 +53,7 @@ fn plain_text_single_sheet_appends_trimmed_footnote() {
 }
 
 #[test]
-fn plain_text_multiple_sheets_uses_hash_name_and_blank_line_separators() {
+fn plain_text_multiple_sheets_uses_bare_name_and_single_newline() {
     let mut doc = Document::from_plain_text("本体テキスト\n");
     doc.push_sheet(
         DocumentSheet::new(0, "シートA", "", None, "A本文\n")
@@ -65,10 +65,22 @@ fn plain_text_multiple_sheets_uses_hash_name_and_blank_line_separators() {
             .with_footnote_text("C脚注"),
     );
 
+    // 新規則（Tika Excel 準拠）: 各シートの先頭に装飾なしのシート名単独行を出す。
+    // シート間は空行（\n\n）区切り、シート名行の直後だけは単一改行（\n）。
+    // 脚注は従来どおり \n\n で連結する。
     assert_eq!(
         doc.plain_text(),
-        "# シートA\n\nA本文\n\nA脚注\n\n# シートB\n\nB本文\n\n# シートC\n\nC本文\n\nC脚注"
+        "シートA\nA本文\n\nA脚注\n\nシートB\nB本文\n\nシートC\nC本文\n\nC脚注"
     );
+    // `# ` プレフィックスは廃止: シート名行の行頭に `#` がつかないことを明確に検証する。
+    let rendered = doc.plain_text();
+    assert!(!rendered.starts_with("# "));
+    for name in ["シートA", "シートB", "シートC"] {
+        assert!(
+            rendered.contains(&format!("\n{}\n", name)) || rendered.starts_with(&format!("{}\n", name)),
+            "bare sheet name line missing: {name}"
+        );
+    }
 }
 
 #[test]

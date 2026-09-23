@@ -103,10 +103,14 @@ fn synthetic_multi_sheet_parsing() {
         text2
     );
 
+    // 新規則（Tika Excel 準拠）: シート名は装飾なしの単独行で、名前の直後は単一改行（\n）。
+    // シート間は空行（\n\n）区切りのままである。
     let full_text = doc.plain_text();
-    assert!(full_text.contains("# タイトル\n\n銀河鉄道の夜"));
-    assert!(full_text.contains("# 一、午後の授業\n\n「ではみなさんは"));
-    assert!(full_text.contains("# 二、活版所\n\nジョバンニは学校の門を出るとき"));
+    assert!(full_text.starts_with("タイトル\n銀河鉄道の夜"));
+    assert!(full_text.contains("\n\n一、午後の授業\n「ではみなさんは"));
+    assert!(full_text.contains("\n\n二、活版所\nジョバンニは学校の門を出るとき"));
+    // `# ` プレフィックスの廃止を確認する（行頭に `# ` が存在しないこと）。
+    assert!(!full_text.lines().any(|l| l.starts_with("# ")));
 }
 
 #[test]
@@ -139,9 +143,11 @@ fn multi_sheet_document_parsing_and_text_extraction() {
     let acknowledgements_sheet = doc.sheet_by_name("謝辞").expect("sheet exists");
     assert!(!acknowledgements_sheet.text().is_empty());
 
-    // Check full plain text concatenation
+    // Check full plain text concatenation under the bare sheet-name rule:
+    // each sheet begins with a bare name line followed by a single newline.
     let full_text = doc.plain_text();
-    assert!(full_text.contains("# タイトル"));
-    assert!(full_text.contains("# アブストラクト"));
-    assert!(full_text.contains("# 謝辞"));
+    assert!(full_text.starts_with("タイトル\n"));
+    assert!(full_text.contains("\n\nアブストラクト\n"));
+    assert!(full_text.contains("\n\n謝辞\n"));
+    assert!(!full_text.lines().any(|l| l.starts_with("# ")));
 }

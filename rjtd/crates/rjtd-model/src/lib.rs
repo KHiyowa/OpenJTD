@@ -213,7 +213,7 @@ impl Document {
                 if i > 0 {
                     output.push_str("\n\n");
                 }
-                output.push_str(&format!("# {}\n\n", sheet.name()));
+                output.push_str(&format!("{}\n", sheet.name()));
                 output.push_str(sheet.text().trim());
                 if let Some(fn_text) = sheet.footnote_text() {
                     output.push_str("\n\n");
