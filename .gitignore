@@ -30,6 +30,11 @@
 /rjtd-testdata/local-samples/**/*.png
 /rjtd-testdata/local-samples/**/*.$td
 /rjtd-testdata/local-samples/ichitaro-source-y-probe/
+# 調査ノート・スキャン成果物はリポジトリに含めない（ローカル作業ファイルとして保持）
+/rjtd-testdata/local-samples/*.md
+!/rjtd-testdata/local-samples/README.md
+!/rjtd-testdata/local-samples/README.ja.md
+/rjtd-testdata/local-samples/gov-web-jtd/
 **/*.rs.bk
 
 # Generated sample outputs
