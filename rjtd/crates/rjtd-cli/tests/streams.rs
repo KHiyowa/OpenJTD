@@ -5,6 +5,8 @@ mod support;
 mod container;
 #[path = "streams/footnote.rs"]
 mod footnote;
+#[path = "streams/layout_box_text.rs"]
+mod layout_box_text;
 #[path = "streams/line_mark.rs"]
 mod line_mark;
 #[path = "streams/markerless_raw.rs"]

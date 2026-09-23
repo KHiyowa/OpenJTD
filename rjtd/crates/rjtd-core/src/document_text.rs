@@ -1765,6 +1765,162 @@ mod tests {
         );
     }
 
+    // ---- mixed raw prologue (raw 前置き + マーカー本文): red tests for PARTIAL-LOSS-REPORT.md P1 ----
+    //
+    // 2026-09-23 の調査（rjtd-testdata/local-samples/gov-web-jtd/PARTIAL-LOSS-REPORT.md P1）で
+    // 判明した「混在型」のサイレント脱落。TextV.01 セグメント内で最初のマーカー語
+    // （0x001c/0x001d/0x001f）の位置 m より手前に UTF-16BE 生の前置き本文が置かれ、
+    // 後続がマーカー型本文になっている文書が存在する（maff-tenpu02-238 等 33件）。
+    // 現行実装は通常パスを reading_text=false で走査するため前置き領域の語を丸ごと
+    // 捨て、最初の run マーカー以降だけを抽出する。修正案は同レポート P1（プロローグ
+    // raw デコード）参照。
+    //
+    // 本文は官公庁原本の文言を使わず、宮沢賢治「銀河鉄道の夜」（青空文庫、
+    // パブリックドメイン、https://www.aozora.gr.jp/cards/000081/files/456_15050.html
+    // よりふりがなを除去）を合成する。
+    //
+    // レイアウト（REPORT.md と同一語義、word 単位）:
+    //   w[0..9]   SsmgV.01 + ヘッダ + w[9]=内部セグメント数（本ケースでは >1）
+    //   w[10..13] "TextV.01"
+    //   w[14]     0x0000
+    //   w[15]     本文 span 長（word 数。前置き＋マーカー部を含む）
+    //   w[16..m]  前置き（UTF-16BE 生テキスト・マーカー無し）
+    //   w[m..]    マーカー型本文（0x001c…0x001f レコード＋run テキスト）
+    const TEXTV01_NAME_WORDS: &[u16] = &[0x5465, 0x7874, 0x562e, 0x3031]; // "TextV.01"
+    const SSMGV_HEAD_WORDS: &[u16] =
+        &[0x5373, 0x6d67, 0x562e, 0x3031, 0x0000, 0x0001, 0x0000, 0x0100, 0x0000];
+
+    // RFC 0009 の自己整合なレコード終端（len=6・class=0x0010）。0x001f の直後に
+    // run テキストが続く構造（is_document_text_run_start 条件2・3通过）。
+    const RUN_RECORD_FOOTER_WORDS: &[u16] = &[0x001c, 0x0010, 0x0006, 0x0000, 0x0010, 0x001f];
+
+    fn mixed_prologue_payload(segment_count: u16, prologue: &[u16], body: &[u16]) -> Vec<u8> {
+        let length = (prologue.len() + body.len()) as u16;
+        let mut payload: Vec<u8> = Vec::new();
+        extend_units(&mut payload, SSMGV_HEAD_WORDS);
+        extend_units(&mut payload, &[segment_count]);
+        extend_units(&mut payload, TEXTV01_NAME_WORDS);
+        extend_units(&mut payload, &[0x0000, length]);
+        extend_units(&mut payload, prologue);
+        extend_units(&mut payload, body);
+        payload
+    }
+
+    fn utf16_units(text: &str) -> Vec<u16> {
+        text.encode_utf16().collect()
+    }
+
+    const GALAXY_P5: &str = "「ジョバンニさん。あなたはわかっているのでしょう。」";
+    const GALAXY_P6: &str =
+        "やっぱり星だとジョバンニは思いましたがこんどもすぐに答えることができませんでした。";
+    const GALAXY_P7: &str = "「ああきっと一緒だよ。お母さん、窓をしめて置こうか。」";
+    const GALAXY_P8: &str = "「ああ行っておいで。川へははいらないでね。」";
+    const GALAXY_P9: &str = "ジョバンニは窓をあけました。";
+    const GALAXY_P10_NOISE: &str = "銀河ステーションで、もらったんだ。";
+    const GALAXY_P11: &str = "「大きな望遠鏡で銀河をよっく調べると銀河は大体何でしょう。」";
+    const GALAXY_P12: &str =
+        "ジョバンニは、ばっと胸がつめたくなり、そこら中きぃんと鳴るように思いました。";
+    const GALAXY_P13: &str = "「ああ、お前さきにおあがり。あたしはまだほしくないんだから。」";
+
+    #[test]
+    fn mixed_raw_prologue_recovers_text_before_first_run_marker() {
+        // 混在型: 前置き raw テキスト＋0x001c…0x001f マーカー本文。
+        // 現行実装は前置きを捨てて GALAXY_P6+GALAXY_P7 だけになる。
+        // 期待: 前置き込みの全文（maff-tenpu02-238 の宛先ブロック脱落の再現型）。
+        let prologue = utf16_units(&format!("{GALAXY_P5}\n"));
+        let mut body: Vec<u16> = Vec::new();
+        body.extend_from_slice(RUN_RECORD_FOOTER_WORDS);
+        body.extend(utf16_units(GALAXY_P6));
+        body.extend_from_slice(RUN_RECORD_FOOTER_WORDS);
+        body.extend(utf16_units(GALAXY_P7));
+        let payload = mixed_prologue_payload(0x0003, &prologue, &body);
+
+        let parsed = parse_document_text(&payload);
+        let expected = format!("{GALAXY_P5}\n{GALAXY_P6}{GALAXY_P7}");
+
+        assert_eq!(
+            parsed.plain_text(),
+            expected,
+            "最初の run マーカーより手前の raw 前置き（銀河鉄道の夜）が復元できない"
+        );
+        assert_eq!(
+            parsed.elements().first(),
+            Some(&DocumentTextElement::TextRun(format!("{GALAXY_P5}\n"))),
+            "前置きは後続マーカー本文より前の TextRun として emit しなければならない"
+        );
+
+        // map_document_text にも同一レイアウトをミラーすること（レポート P1 方針2）。
+        let map = map_document_text(&payload);
+        assert_eq!(map.entries().first().map(|e| e.unit_start()), Some(16));
+        assert_eq!(map.entries().first().map(|e| e.byte_start()), Some(32));
+        assert_eq!(
+            map.entries().first().map(|e| e.text()),
+            Some(format!("{GALAXY_P5}\n").as_str()),
+            "プロローグは unit 16（byte 32）から始まるエントリとしてマップされるべき"
+        );
+        let mapped: String = map.entries().iter().map(|e| e.text()).collect();
+        assert_eq!(mapped, expected);
+    }
+
+    #[test]
+    fn mixed_raw_prologue_keeps_line_breaks_and_stops_at_control_boundary() {
+        // 前置きデコードの意味論: CR/LF は行区切りとして保持、0x0000 は連続
+        // パディングとしてスキップ、それ以外の制御境界（0x0019）で読みを打ち切る。
+        // 打ち切り以降のノイズ語（銀河ステーションで、もらったんだ。）は出力しない。
+        let mut prologue: Vec<u16> = utf16_units(&format!("{GALAXY_P8}\n"));
+        prologue.extend_from_slice(&[0x0000, 0x0000]);
+        prologue.extend(utf16_units(GALAXY_P9));
+        prologue.push(0x0019);
+        prologue.extend(utf16_units(GALAXY_P10_NOISE));
+        let mut body: Vec<u16> = Vec::new();
+        body.extend_from_slice(RUN_RECORD_FOOTER_WORDS);
+        body.extend(utf16_units(GALAXY_P11));
+        let payload = mixed_prologue_payload(0x0003, &prologue, &body);
+
+        let parsed = parse_document_text(&payload);
+        let expected = format!("{GALAXY_P8}\n{GALAXY_P9}{GALAXY_P11}");
+
+        assert_eq!(
+            parsed.plain_text(),
+            expected,
+            "改行保持・ゼロパディングスキップ・制御境界打ち切りが守られていない"
+        );
+        assert!(
+            !parsed.plain_text().contains(GALAXY_P10_NOISE),
+            "制御境界 0x0019 より後ろのノイズ語を出力してはならない"
+        );
+    }
+
+    #[test]
+    fn mixed_raw_prologue_empty_span_keeps_output_unchanged() {
+        // リグレッションガード: 正常マーカー型（span が語 16 からちょうど 0x001c で
+        // 始まり前置き領域が空）では出力を一切変えないこと。
+        // コーパス 236件中 174件がこれに相当（empty_prologue=174）。
+        let mut body: Vec<u16> = Vec::new();
+        body.extend_from_slice(RUN_RECORD_FOOTER_WORDS);
+        body.extend(utf16_units(GALAXY_P12));
+        body.extend_from_slice(RUN_RECORD_FOOTER_WORDS);
+        body.extend(utf16_units(GALAXY_P13));
+        let payload = mixed_prologue_payload(0x0003, &[], &body);
+
+        let parsed = parse_document_text(&payload);
+        let expected = format!("{GALAXY_P12}{GALAXY_P13}");
+
+        assert_eq!(
+            parsed.plain_text(),
+            expected,
+            "前置き空のマーカー型で出力が変化してはならない（リグレッション）"
+        );
+        let map = map_document_text(&payload);
+        assert_eq!(
+            map.entries().first().map(|e| e.unit_start()),
+            Some(22),
+            "前置き空では最初のテキストエントリが語 22（最初の run テキスト）であること"
+        );
+        let mapped: String = map.entries().iter().map(|e| e.text()).collect();
+        assert_eq!(mapped, expected);
+    }
+
     #[test]
     fn parses_row_header_inventory_as_state_run_pairs() {
         let payload = row_header_record_bytes(
