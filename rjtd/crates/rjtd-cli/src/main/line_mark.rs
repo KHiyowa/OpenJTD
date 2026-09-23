@@ -1,10 +1,7 @@
-use std::path::Path;
-
 use rjtd_core::container::read_cfb_stream;
 use rjtd_core::document_text::{map_document_text, read_document_text_payload};
 
 use crate::input::read_file;
-use crate::{probe_compare, probe_corpus};
 
 use super::line_mark_support::*;
 use super::support::*;
@@ -37,32 +34,6 @@ pub(crate) fn run_line_mark_intervals(
     let bytes = read_file(path)?;
     let stream = read_cfb_stream(&bytes, "/LineMark").map_err(|error| error.to_string())?;
     write_line_mark_intervals(&stream)
-}
-
-pub(crate) fn run_source_y_probe_audit(
-    mut args: impl Iterator<Item = String>,
-) -> Result<(), String> {
-    let path = required_path(args.next(), "source-y-probe-audit")?;
-    let lines = probe_corpus::source_y_probe_audit_lines(Path::new(&path))?;
-    for line in lines {
-        write_stdout_line(&line)?;
-    }
-    Ok(())
-}
-
-pub(crate) fn run_source_y_probe_compare(
-    mut args: impl Iterator<Item = String>,
-) -> Result<(), String> {
-    let base_path = required_path(args.next(), "source-y-probe-compare")?;
-    let candidate_path = required_path(args.next(), "source-y-probe-compare")?;
-    let lines = probe_compare::source_y_probe_compare_lines(
-        Path::new(&base_path),
-        Path::new(&candidate_path),
-    )?;
-    for line in lines {
-        write_stdout_line(&line)?;
-    }
-    Ok(())
 }
 
 pub(crate) fn run_line_mark_text_context(

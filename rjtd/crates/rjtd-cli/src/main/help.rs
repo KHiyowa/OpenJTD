@@ -25,8 +25,6 @@ Usage:
   rjtd stream-word-frequencies <file.jtd> <stream-path>
   rjtd line-mark-tags <file.jtd>
   rjtd line-mark-intervals <file.jtd>
-  rjtd source-y-probe-audit <corpus-dir>
-  rjtd source-y-probe-compare <base.jtd> <candidate.jtd>
   rjtd line-mark-text-context <file.jtd>
   rjtd stream-dwords <file.jtd> <stream-path>
   rjtd stream-dword-frequencies <file.jtd> <stream-path>

@@ -1,14 +1,6 @@
 #![doc = include_str!("../README.md")]
 
 mod input;
-mod probe_compare;
-mod probe_corpus;
-mod probe_format;
-mod probe_line_diff;
-mod probe_manifest;
-mod probe_page_diff;
-mod probe_signals;
-mod probe_validation;
 
 #[path = "main/mod.rs"]
 mod cli;
@@ -50,8 +42,6 @@ fn run(args: impl IntoIterator<Item = String>) -> Result<(), String> {
         Some("stream-word-frequencies") => cli::stream_scan::run_stream_word_frequencies(args),
         Some("line-mark-tags") => cli::line_mark::run_line_mark_tags(args),
         Some("line-mark-intervals") => cli::line_mark::run_line_mark_intervals(args),
-        Some("source-y-probe-audit") => cli::line_mark::run_source_y_probe_audit(args),
-        Some("source-y-probe-compare") => cli::line_mark::run_source_y_probe_compare(args),
         Some("line-mark-text-context") => cli::line_mark::run_line_mark_text_context(args),
         Some("stream-dwords") => cli::stream_scan::run_stream_dwords(args),
         Some("stream-dword-frequencies") => cli::stream_scan::run_stream_dword_frequencies(args),
