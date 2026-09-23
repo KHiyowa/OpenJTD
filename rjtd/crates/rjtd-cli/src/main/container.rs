@@ -5,7 +5,6 @@ use rjtd_core::document_text::{
     COMPRESSED_DOCUMENT_PATH, DOCUMENT_TEXT_PATH, EMBEDDED_DOCUMENT_TEXT_PATH,
     read_document_text_payload,
 };
-use rjtd_core::document_text_position::DOCUMENT_TEXT_POSITION_TABLES_PATH;
 use rjtd_core::format::detect_format;
 
 use crate::input::read_file;
@@ -55,11 +54,6 @@ pub(crate) fn run_info(mut args: impl Iterator<Item = String>) -> Result<(), Str
     write_stdout_line(&format!("streams\t{stream_count}"))?;
     write_stdout_line(&format!("storages\t{storage_count}"))?;
     print_entry_size(&entries, DOCUMENT_TEXT_PATH, "document_text_bytes")?;
-    print_entry_size(
-        &entries,
-        DOCUMENT_TEXT_POSITION_TABLES_PATH,
-        "document_text_position_table_bytes",
-    )?;
     print_entry_size(
         &entries,
         COMPRESSED_DOCUMENT_PATH,
