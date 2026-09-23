@@ -1,7 +1,7 @@
 ## Summary
 
 - What problem does this change solve?
-- Which parser, model, exporter, CLI, WASM, documentation, or RFC boundary does
+- Which parser, model, exporter, CLI, documentation, or RFC boundary does
   it affect?
 
 ## Evidence and Scope

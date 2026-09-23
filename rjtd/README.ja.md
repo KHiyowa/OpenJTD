@@ -15,8 +15,8 @@ app-core integration components を提供する。
 ## 0.0.1 Developer Preview
 
 最初の crates.io release は experimental developer preview である。
-OpenJTD は `rjtd-core`、`rjtd-model`、`rjtd-export`、`rjtd-cli`、
-`rjtd-wasm` を公開し、`rjtd-testkit` は workspace 内部専用のままにする。
+OpenJTD は `rjtd-core`、`rjtd-model`、`rjtd-export`、`rjtd-cli` を公開する。
+旧 `rjtd-wasm` と `rjtd-testkit` は退役済みである。
 release scope は [CHANGELOG.md](CHANGELOG.md)、必須の公開順序は
 [RELEASING.md](RELEASING.md) を参照する。
 
@@ -62,7 +62,7 @@ Document Model
 
 すべての機能はこの階層を通じて実装する。特定の Exporter が元データを直接読んではならない。必ず Document Model を経由する。
 
-現在の `rjtd-model::DocumentCore` は rhwp の app-core flow に従い、`from_bytes`、`page_count`、`get_document_info`、`get_page_info`、page/section setting fallbacks、`render_page_svg`、`render_page_html`、layer/overlay fallback APIs を提供する。`get_page_layer_tree` は fallback `textRun` ops と rhwp-shaped `textSources`/`source` spans を出力し、parsed `/DocumentText` spans がある場合は JTD byte/unit source ranges も含める。layer envelope も schema/resource table versions、output options、empty font resources、feature lists、fallback `textV2` diagnostics を持つ rhwp-shaped output である。`rjtd-wasm` は rhwp Studio が期待する surface に合わせた名前の `HwpDocument` wrapper を提供する。
+現在の `rjtd-model::DocumentCore` は rhwp の app-core flow に従い、`from_bytes`、`page_count`、`get_document_info`、`get_page_info`、page/section setting fallbacks、`render_page_svg`、`render_page_html`、layer/overlay fallback APIs を提供する。`get_page_layer_tree` は fallback `textRun` ops と rhwp-shaped `textSources`/`source` spans を出力し、parsed `/DocumentText` spans がある場合は JTD byte/unit source ranges も含める。layer envelope も schema/resource table versions、output options、empty font resources、feature lists、fallback `textV2` diagnostics を持つ rhwp-shaped output である。
 
 ## Document Model First
 
@@ -103,9 +103,7 @@ rjtd/
 │   ├── rjtd-core
 │   ├── rjtd-model
 │   ├── rjtd-export
-│   ├── rjtd-cli
-│   ├── rjtd-wasm
-│   └── rjtd-testkit
+│   └── rjtd-cli
 ├── docs
 ├── samples
 ├── fuzz

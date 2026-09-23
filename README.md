@@ -21,7 +21,6 @@ practical JTD engine that can support faithful layout rendering and editing.
   PDF.
 - Diagnostic parsers for `/DocumentTextPositionTables`, `/LineMark`,
   `/PageMark`, `/PaperMark`, and object/control marker research.
-- WASM wrapper support used by early viewer integration experiments.
 
 ## Why OpenJTD matters
 
@@ -63,22 +62,13 @@ cargo test --workspace
 
 cargo run -p rjtd-cli -- info path/to/document.jtd
 cargo run -p rjtd-cli -- cat path/to/document.jtd
-cargo run -p rjtd-cli -- export path/to/document.jtd --format md
-cargo run -p rjtd-cli -- export path/to/document.jtd --format json
-cargo run -p rjtd-cli -- export path/to/document.jtd --format pdf -o output.pdf
-```
-
-To refresh the local sample PDF artifacts used for visual regression checks,
-run this from the repository root:
-
-```sh
-scripts/regenerate-pdf-output.sh
+cargo run -p rjtd-cli -- export path/to/document.jtd --format txt
 ```
 
 ## Repository Layout
 
 - [`rjtd/`](rjtd/) - Rust toolset and workspace for the current OpenJTD
-  components: core engine, CLI, exporters, WASM wrapper, and test helpers.
+  components: core engine, CLI, and exporters.
 - [`openjtd-spec/`](openjtd-spec/) - public specification notes and RFC records.
 - [`docs/`](docs/) - charter, architecture, roadmap, and research policy.
 - [`openjtd-samples/`](openjtd-samples/) - redistributable sample/output artifacts.

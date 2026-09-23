@@ -135,9 +135,7 @@ rjtd/
 │   ├── rjtd-core
 │   ├── rjtd-model
 │   ├── rjtd-export
-│   ├── rjtd-cli
-│   ├── rjtd-wasm
-│   └── rjtd-testkit
+│   └── rjtd-cli
 ├── docs
 ├── samples
 ├── fuzz

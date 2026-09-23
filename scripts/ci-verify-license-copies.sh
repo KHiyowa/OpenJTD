@@ -7,7 +7,6 @@ readonly license_copies=(
   rjtd/crates/rjtd-model/LICENSE
   rjtd/crates/rjtd-export/LICENSE
   rjtd/crates/rjtd-cli/LICENSE
-  rjtd/crates/rjtd-wasm/LICENSE
 )
 
 for license_copy in "${license_copies[@]}"; do

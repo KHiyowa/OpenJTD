@@ -30,7 +30,7 @@ details, proof-of-concept data, or affected documents in that issue.
 Include, when available:
 
 - the affected OpenJTD version or commit;
-- the operating system and execution surface (library, CLI, or WASM);
+- the operating system and execution surface (library or CLI);
 - the affected document format and the command or API call used;
 - minimal reproduction steps and observed resource usage;
 - the expected impact and any known mitigation;

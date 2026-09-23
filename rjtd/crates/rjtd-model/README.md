@@ -36,8 +36,8 @@ document features.
   construction.
 - `Document` owns the parsed metadata, blocks, raw streams, and retained
   evidence. It is the value consumed by `rjtd-export`.
-- `DocumentCore` is the application-facing facade used by the viewer and
-  `rjtd-wasm`. Construct it with `DocumentCore::from_document` or
+- `DocumentCore` is the application-facing facade used by embedders.
+  Construct it with `DocumentCore::from_document` or
   `DocumentCore::from_bytes` when page information, rendering, navigation, or
   editing fallbacks are needed.
 - `parse_document_with_limits`, `DocumentCore::from_bytes_with_limits`, and

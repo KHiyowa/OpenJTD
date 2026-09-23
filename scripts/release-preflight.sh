@@ -24,7 +24,7 @@ OpenJTD 0.0.1 public crate. It never performs a real upload.
 
 Options:
   -p, --package <package>  One of rjtd-core, rjtd-model, rjtd-export,
-                           rjtd-wasm, or rjtd-cli.
+                           or rjtd-cli.
       --allow-dirty        Local candidate inspection only; never release approval.
   -h, --help               Show this help.
 EOF
@@ -67,14 +67,8 @@ case "$package" in
     rjtd-export)
         release_dependencies=(rjtd-core rjtd-model)
         ;;
-    rjtd-wasm)
-        release_dependencies=(rjtd-core rjtd-model)
-        ;;
     rjtd-cli)
         release_dependencies=(rjtd-core rjtd-model rjtd-export)
-        ;;
-    rjtd-testkit)
-        die "rjtd-testkit is internal and must never be preflighted or published"
         ;;
     *)
         die "unsupported package: $package"
@@ -90,18 +84,12 @@ repo_root="$(git -C "$script_dir/.." rev-parse --show-toplevel)"
 workspace="$repo_root/rjtd"
 workspace_manifest="$workspace/Cargo.toml"
 package_manifest="$workspace/crates/$package/Cargo.toml"
-testkit_manifest="$workspace/crates/rjtd-testkit/Cargo.toml"
 
 [[ -f "$workspace_manifest" ]] || die "missing workspace manifest: $workspace_manifest"
 [[ -f "$package_manifest" ]] || die "missing package manifest: $package_manifest"
-[[ -f "$testkit_manifest" ]] || die "missing testkit manifest: $testkit_manifest"
 
 if ! grep -Eq '^[[:space:]]*publish[[:space:]]*=[[:space:]]*\[[[:space:]]*"crates-io"[[:space:]]*\][[:space:]]*(#.*)?$' "$package_manifest"; then
     die "$package is not explicitly limited to crates-io"
-fi
-
-if ! grep -Eq '^[[:space:]]*publish[[:space:]]*=[[:space:]]*false[[:space:]]*(#.*)?$' "$testkit_manifest"; then
-    die "rjtd-testkit must retain publish = false"
 fi
 
 if [[ "$allow_dirty" == false ]]; then

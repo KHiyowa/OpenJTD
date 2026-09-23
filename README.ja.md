@@ -21,7 +21,6 @@ OpenJTD は、オープンソースの JTD レンダリングエンジン兼エ�
   テキスト指向 PDF を出力。
 - `/DocumentTextPositionTables`、`/LineMark`、`/PageMark`、`/PaperMark`、
   オブジェクト/制御マーカー調査用の診断パーサー。
-- 初期ビューア統合実験で使う WASM ラッパー。
 
 ## OpenJTD が重要な理由
 
@@ -63,22 +62,13 @@ cargo test --workspace
 
 cargo run -p rjtd-cli -- info path/to/document.jtd
 cargo run -p rjtd-cli -- cat path/to/document.jtd
-cargo run -p rjtd-cli -- export path/to/document.jtd --format md
-cargo run -p rjtd-cli -- export path/to/document.jtd --format json
-cargo run -p rjtd-cli -- export path/to/document.jtd --format pdf -o output.pdf
-```
-
-visual regression checks に使う local sample PDF artifacts を更新するには、repository
-root で次を実行します。
-
-```sh
-scripts/regenerate-pdf-output.sh
+cargo run -p rjtd-cli -- export path/to/document.jtd --format txt
 ```
 
 ## リポジトリ構成
 
 - [`rjtd/`](rjtd/) - 現在の OpenJTD 構成要素を作る Rust ツール群とワークスペース。
-  コアエンジン、CLI、エクスポータ、WASM ラッパー、テスト補助を含みます。
+  コアエンジン、CLI、エクスポータを含みます。
 - [`openjtd-spec/`](openjtd-spec/) - 公開仕様メモと RFC 記録。
 - [`docs/`](docs/) - 憲章、アーキテクチャ、ロードマップ、調査ポリシー。
 - [`openjtd-samples/`](openjtd-samples/) - 再配布可能なサンプル/出力成果物。

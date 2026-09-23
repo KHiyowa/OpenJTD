@@ -4,8 +4,6 @@ members = [
     "crates/rjtd-model",
     "crates/rjtd-export",
     "crates/rjtd-cli",
-    "crates/rjtd-wasm",
-    "crates/rjtd-testkit",
 ]
 resolver = "3"
 

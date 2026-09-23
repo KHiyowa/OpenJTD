@@ -2,7 +2,7 @@
 set -euo pipefail
 
 readonly repository_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-readonly public_crates=(rjtd-core rjtd-model rjtd-export rjtd-cli rjtd-wasm)
+readonly public_crates=(rjtd-core rjtd-model rjtd-export rjtd-cli)
 readonly required_package_files=(Cargo.toml README.md LICENSE)
 
 cd "$repository_root/rjtd"
@@ -21,5 +21,3 @@ for crate in "${public_crates[@]}"; do
 
   grep --extended-regexp '^src/.+\.rs$' "$package_list" >/dev/null
 done
-
-grep --fixed-strings --line-regexp 'publish = false' crates/rjtd-testkit/Cargo.toml >/dev/null

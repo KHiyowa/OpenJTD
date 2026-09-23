@@ -27,14 +27,11 @@ test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
 | `rjtd-core` | yes | none |
 | `rjtd-model` | yes | `rjtd-core` |
 | `rjtd-export` | yes | `rjtd-core`, `rjtd-model` |
-| `rjtd-wasm` | yes | `rjtd-core`, `rjtd-model` |
 | `rjtd-cli` | yes | `rjtd-core`, `rjtd-model`, `rjtd-export` |
-| `rjtd-testkit` | **never** | internal only; manifest must retain `publish = false` |
 
-Publish in this exact order: `rjtd-core`, `rjtd-model`, `rjtd-export`,
-`rjtd-wasm`, then `rjtd-cli`. Wait for every uploaded predecessor to appear in
-the crates.io index before starting its dependent's gate. `rjtd-testkit` is not
-part of any package, dry-run, owner, or publish command.
+Publish in this exact order: `rjtd-core`, `rjtd-model`, `rjtd-export`, then
+`rjtd-cli`. Wait for every uploaded predecessor to appear in
+the crates.io index before starting its dependent's gate.
 
 ## One-time source gate
 
@@ -52,9 +49,7 @@ RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked
 ```
 
 `--locked` is intentional: Cargo exits rather than changing or regenerating
-`Cargo.lock`, which makes the gate reproducible. A product-specific `wasm-pack`
-build may be run separately, but the crates.io gate is Cargo's package and
-publish verification.
+`Cargo.lock`, which makes the gate reproducible.
 
 ## Per-package release preflight
 
@@ -75,9 +70,8 @@ checks their availability before normal execution. In particular, `tee` copies
 the authoritative package list to a disposable file while preserving it for
 operator review. The gate verifies all of the following before the dry-run:
 
-- the selected package is one of the five public `0.0.1` crates and explicitly
+- the selected package is one of the four public `0.0.1` crates and explicitly
   permits only `crates-io`;
-- `rjtd-testkit` still has `publish = false`;
 - the repository is clean (or, only for local candidate inspection,
   `--allow-dirty` was explicitly chosen);
 - the selected exact crates.io name is currently unallocated; a `404` check is
@@ -120,7 +114,7 @@ the tagged release commit.
    ```
 
    Do not edit, commit, rebase, or switch commits between this check and the
-   five publication stages. All five `cargo publish` commands below must run
+   four publication stages. All four `cargo publish` commands below must run
    from the tagged release commit.
 
 2. The human publisher must have a crates.io account, verified email, and an
@@ -137,7 +131,6 @@ the tagged release commit.
    cargo publish --locked -p rjtd-core
    cargo publish --locked -p rjtd-model
    cargo publish --locked -p rjtd-export
-   cargo publish --locked -p rjtd-wasm
    cargo publish --locked -p rjtd-cli
    ```
 
@@ -165,10 +158,10 @@ the tagged release commit.
      follow-up commit or issue. Do not create a replacement `0.0.1` source tag
      or overwrite the published version.
 
-4. After each of the five public crates becomes visible, add and list the
+4. After each of the four public crates becomes visible, add and list the
    intended owner(s) for that specific crate. Repeat the following pair for
-   `rjtd-core`, `rjtd-model`, `rjtd-export`, `rjtd-wasm`, and `rjtd-cli` only;
-   never run it for `rjtd-testkit`. Replace the owner value with the approved
+   `rjtd-core`, `rjtd-model`, `rjtd-export`, and `rjtd-cli` only.
+   Replace the owner value with the approved
    GitHub identity. A team owner uses `github:<organization>:<team>`.
 
    ```sh
@@ -180,7 +173,7 @@ the tagged release commit.
    Named owners can also change owners; team owners can publish and yank but
    cannot manage owners. Do not grant either role to an untrusted identity.
 
-5. After all five crate pages and docs.rs builds are healthy, the date-bearing
+5. After all four crate pages and docs.rs builds are healthy, the date-bearing
    tag is already pushed and remains the sole release-source tag. Do not make a
    second changelog-date commit. Any completion note is a normal follow-up
    commit and must not move the release tag.

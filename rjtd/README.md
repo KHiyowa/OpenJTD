@@ -17,8 +17,8 @@ The overall project charter and ecosystem plan follow the top-level [docs/CHARTE
 ## 0.0.1 Developer Preview
 
 The first crates.io release is an experimental developer preview. OpenJTD is
-publishing `rjtd-core`, `rjtd-model`, `rjtd-export`, `rjtd-cli`, and
-`rjtd-wasm`; `rjtd-testkit` remains an internal workspace crate. See
+publishing `rjtd-core`, `rjtd-model`, `rjtd-export`, and `rjtd-cli`. The
+former `rjtd-wasm` and `rjtd-testkit` crates have been retired. See
 [CHANGELOG.md](CHANGELOG.md) for the release scope and
 [RELEASING.md](RELEASING.md) for the required publication order.
 
@@ -66,7 +66,7 @@ Document Model
 
 Every feature must be implemented through these layers. No exporter may read source data directly. Exporters must go through the Document Model.
 
-The current `rjtd-model::DocumentCore` follows the rhwp app-core flow and provides `from_bytes`, `page_count`, `get_document_info`, `get_page_info`, page/section setting fallbacks, `render_page_svg`, `render_page_html`, layer/overlay fallback APIs, text-page cursor/hit-test helpers, basic body paragraph editing, undo snapshots, body search/replace, view-state toggles, page-position lookup, document-tree navigation fallbacks, selection rectangles, and a plain-text internal clipboard. `get_page_layer_tree` emits fallback `textRun` ops plus rhwp-shaped `textSources`/`source` spans, including JTD byte/unit source ranges where parsed `/DocumentText` spans are known, inside a rhwp-shaped layer envelope with schema/resource table versions, output options, empty font resources, feature lists, and fallback `textV2` diagnostics. `rjtd-wasm` provides an `HwpDocument` wrapper named to match the surface expected by rhwp Studio; direct Studio-call API gaps are now closed except for wasm-bindgen's generated `free` method. Most advanced surfaces are conservative fallbacks: field/header/footer/note, table/cell, picture/shape/equation/bookmark/form, HTML paste/export, HWP/HWPX export, formatting/style, and numbering APIs return no-hit/no-op/default values until the corresponding JTD structures are decoded.
+The current `rjtd-model::DocumentCore` follows the rhwp app-core flow and provides `from_bytes`, `page_count`, `get_document_info`, `get_page_info`, page/section setting fallbacks, `render_page_svg`, `render_page_html`, layer/overlay fallback APIs, text-page cursor/hit-test helpers, basic body paragraph editing, undo snapshots, body search/replace, view-state toggles, page-position lookup, document-tree navigation fallbacks, selection rectangles, and a plain-text internal clipboard. `get_page_layer_tree` emits fallback `textRun` ops plus rhwp-shaped `textSources`/`source` spans, including JTD byte/unit source ranges where parsed `/DocumentText` spans are known, inside a rhwp-shaped layer envelope with schema/resource table versions, output options, empty font resources, feature lists, and fallback `textV2` diagnostics. Most advanced surfaces are conservative fallbacks: field/header/footer/note, table/cell, picture/shape/equation/bookmark/form, HTML paste/export, HWP/HWPX export, formatting/style, and numbering APIs return no-hit/no-op/default values until the corresponding JTD structures are decoded. The former `rjtd-wasm` crate (an `HwpDocument` wrapper) has been retired in the slim, text-only line.
 
 ## Document Model First
 
@@ -120,9 +120,7 @@ rjtd/
 │   ├── rjtd-core
 │   ├── rjtd-model
 │   ├── rjtd-export
-│   ├── rjtd-cli
-│   ├── rjtd-wasm
-│   └── rjtd-testkit
+│   └── rjtd-cli
 ├── docs
 ├── samples
 ├── fuzz
