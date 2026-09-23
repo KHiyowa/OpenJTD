@@ -570,7 +570,7 @@ fn is_textv01_segment(data: &[u8]) -> bool {
 //   - is_textv01_segment(data)
 //   - w[14] == 0x0000 と 0 < w[15] <= units.len() - 16
 //   - span 内の最初マーカー位置 m が 16 < m
-//   - units[16..m] に printable な語が1つ以上
+//   - units[16..m] に printable な語が1つ以上（CR/LF・空白のみでは発火しない）
 // 通常パスの後続マーカー走査は変更しないため、マーカー型ファイル
 // （m==16、または前置きに printable なし）は出力が一切変わらない（リグレッションガード）。
 // マーカーレス raw パス（span にマーカー皆無）は先頭 raw 経路で早期 return するため構造的に重複しない。
@@ -590,7 +590,12 @@ fn decode_raw_prologue(data: &[u8], units: &[u16]) -> Option<(String, usize)> {
     // 前置き領域に printable な語が1つでもあること（制御境界/0x0000/無効スカラーのみでは発火しない）。
     if !units[start..m]
         .iter()
-        .any(|&code| code != 0x0000 && !is_control_boundary(code) && !is_invalid_scalar(code))
+        .any(|&code| {
+            code != 0x0000
+                && !is_control_boundary(code)
+                && !is_invalid_scalar(code)
+                && !char::from_u32(code as u32).is_some_and(char::is_whitespace)
+        })
     {
         return None;
     }
