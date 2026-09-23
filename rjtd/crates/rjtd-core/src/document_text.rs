@@ -556,6 +556,97 @@ fn document_text_unit_limit(data: &[u8]) -> Option<usize> {
     }
 }
 
+// 混在型 SsmgV.01/TextV.01（PARTIAL-LOSS-REPORT.md P1）の識別子。
+// マジック + TextV.01 セグメント名の両方が揃っているときのみ true。
+fn is_textv01_segment(data: &[u8]) -> bool {
+    data.starts_with(DOCUMENT_TEXT_MAGIC)
+        && data.get(SSMG_HEADER_WORDS * 2..SSMG_HEADER_WORDS * 2 + TEXT_SEGMENT_NAME.len())
+            == Some(TEXT_SEGMENT_NAME)
+}
+
+// P1（PARTIAL-LOSS-REPORT.md）: TextV.01 span の最初のマーカー（0x001c/0x001d/0x001f）より
+// 手前に UTF-16BE 生の前置き本文が置かれた混在型の、前置き領域を raw デコードする。
+// 発火条件をすべて満たすとき (前置き文本, 終端 unit) を返し、それ以外は None を返す:
+//   - is_textv01_segment(data)
+//   - w[14] == 0x0000 と 0 < w[15] <= units.len() - 16
+//   - span 内の最初マーカー位置 m が 16 < m
+//   - units[16..m] に printable な語が1つ以上
+// 通常パスの後続マーカー走査は変更しないため、マーカー型ファイル
+// （m==16、または前置きに printable なし）は出力が一切変わらない（リグレッションガード）。
+// マーカーレス raw パス（span にマーカー皆無）は先頭 raw 経路で早期 return するため構造的に重複しない。
+fn decode_raw_prologue(data: &[u8], units: &[u16]) -> Option<(String, usize)> {
+    if !is_textv01_segment(data) || units.len() < 16 || units[14] != 0x0000 {
+        return None;
+    }
+    let span_len = units[15] as usize;
+    if span_len == 0 || span_len > units.len() - 16 {
+        return None;
+    }
+    let start = 16usize;
+    let m = first_text_marker(units, start, start + span_len)?;
+    if m == start {
+        return None;
+    }
+    // 前置き領域に printable な語が1つでもあること（制御境界/0x0000/無効スカラーのみでは発火しない）。
+    if !units[start..m]
+        .iter()
+        .any(|&code| code != 0x0000 && !is_control_boundary(code) && !is_invalid_scalar(code))
+    {
+        return None;
+    }
+    decode_prologue_units(units, start, m)
+}
+
+// units[start..end) 内の最初の RFC 0009 マーカー（0x001c/0x001d/0x001f）の位置を返す。
+// span 全体がマーカーレスの場合は None（先頭 raw 経路が管轄）。
+// layout_box_text（P2）のブロック span 走査でも共用される。
+pub(crate) fn first_text_marker(units: &[u16], start: usize, end: usize) -> Option<usize> {
+    for (offset, &code) in units[start..end].iter().enumerate() {
+        if code == RECORD_START_MARKER || code == INLINE_TEXT_START || code == TEXT_RUN_MARKER {
+            return Some(start + offset);
+        }
+    }
+    None
+}
+
+// units[start..end) を UTF-16BE 生の text として通読する。
+// CR(0x000d)/LF(0x000a) は行区切りとして保持、0x0000 は連続パディングとしてスキップ
+// （打ち切りではない）、それ以外の制御境界・無効スカラーで読みを打ち切る。
+// 少なくとも1語読めば (テキスト, 打ち切り unit 位置) を、空なら None を返す。
+// layout_box_text（P2）のマーカーレスブロック復元でも共用される。
+pub(crate) fn decode_prologue_units(
+    units: &[u16],
+    start: usize,
+    end: usize,
+) -> Option<(String, usize)> {
+    let mut text = String::new();
+    let mut index = start;
+    while index < end {
+        let code = units[index];
+        if code == 0x0000 {
+            index += 1;
+            continue;
+        }
+        if code == 0x000d || code == 0x000a {
+            text.push(if code == 0x000d { '\r' } else { '\n' });
+            index += 1;
+            continue;
+        }
+        if is_invalid_scalar(code) || is_control_boundary(code) {
+            break;
+        }
+        if let Some(character) = char::from_u32(code as u32) {
+            text.push(character);
+        }
+        index += 1;
+    }
+    if text.is_empty() {
+        None
+    } else {
+        Some((text, index))
+    }
+}
+
 pub fn parse_document_text(data: &[u8]) -> ParsedDocumentText {
     // SsmgV.01 w[9]=0x0001: single raw-text segment (no 0x001f paragraph markers).
     // Layout: SsmgV.01 header (10 words) + TextV.01 name (4 words) + length (2 words) + text.
@@ -591,8 +682,17 @@ pub fn parse_document_text(data: &[u8]) -> ParsedDocumentText {
     let mut run = String::new();
     let mut reading_text = false;
     let mut has_prose = false;
-    let mut index = 0;
     let mut numbering_state = NumberingState::default();
+
+    // 混在型（P1）: 最初のマーカーより手前の raw 前置きを、後続マーカー本文より前で
+    // TextRun として1つ emit する。マーカー型ファイル（前置き空・printable なし）は
+    // 発火せず、通常のマーカー走査のみで現状と同一の出力を作る（リグレッションガード）。
+    if let Some((prologue, _boundary)) = decode_raw_prologue(data, &units) {
+        elements.push(DocumentTextElement::TextRun(prologue));
+        has_prose = true;
+    }
+
+    let mut index = 0;
 
     while index < unit_limit {
         let code = units[index];
@@ -666,6 +766,21 @@ pub fn map_document_text(data: &[u8]) -> DocumentTextMap {
     let mut run_start = 0usize;
     let mut reading_text = false;
     let mut has_prose = false;
+
+    // 混在型（P1）: 前置き領域を unit_start=16・text=前置き全文の先頭エントリとして
+    // ミラーする（parse_document_text と同一の発火条件・デコード規則）。
+    if let Some((prologue, boundary)) = decode_raw_prologue(data, &units) {
+        entries.push(DocumentTextMapEntry::new(
+            16,
+            boundary,
+            DocumentTextMapKind::TextRun,
+            None,
+            None,
+            prologue,
+        ));
+        has_prose = true;
+    }
+
     let mut index = 0;
 
     while index < unit_limit {
