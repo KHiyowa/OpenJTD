@@ -2007,6 +2007,26 @@ mod tests {
     }
 
     #[test]
+    fn mixed_raw_prologue_whitespace_only_does_not_fire() {
+        // 前置き領域が改行等の空白語だけで printable な字形を含まない場合、
+        // プロローグを発火させてはならない（全236件コーパスのうち空白のみ前置きの
+        // 正常ファイルに余分な空行を混ぜないためのリグレッションガード）。
+        let prologue: Vec<u16> = vec![0x000a, 0x000a];
+        let mut body: Vec<u16> = Vec::new();
+        body.extend_from_slice(RUN_RECORD_FOOTER_WORDS);
+        body.extend(utf16_units(GALAXY_P12));
+        let payload = mixed_prologue_payload(0x0003, &prologue, &body);
+
+        let parsed = parse_document_text(&payload);
+
+        assert_eq!(
+            parsed.plain_text(),
+            GALAXY_P12,
+            "空白のみの前置きでプロローグを発火させ出力を変えてはならない"
+        );
+    }
+
+    #[test]
     fn mixed_raw_prologue_empty_span_keeps_output_unchanged() {
         // リグレッションガード: 正常マーカー型（span が語 16 からちょうど 0x001c で
         // 始まり前置き領域が空）では出力を一切変えないこと。
