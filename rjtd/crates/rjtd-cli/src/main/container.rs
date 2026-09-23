@@ -1,6 +1,5 @@
 use rjtd_core::container::{
-    EntryKind, inspect_cfb_directory, inspect_cfb_entries, inspect_cfb_overview,
-    inspect_cfb_stream_chain, inspect_cfb_stream_location, read_cfb_stream,
+    EntryKind, inspect_cfb_directory, inspect_cfb_entries, inspect_cfb_overview, read_cfb_stream,
 };
 use rjtd_core::document_text::{
     COMPRESSED_DOCUMENT_PATH, DOCUMENT_TEXT_PATH, EMBEDDED_DOCUMENT_TEXT_PATH,
@@ -15,8 +14,8 @@ use super::container_support::{
     format_cfb_id, format_sector_ids, print_entry_size, write_cfb_chain,
 };
 use super::support::{
-    escaped_path, escaped_text, required_path, stream_chain_offset_basis, unescaped_path,
-    write_stdout_bytes, write_stdout_line,
+    escaped_path, escaped_text, required_path, unescaped_path, write_stdout_bytes,
+    write_stdout_line,
 };
 
 pub(crate) fn run_streams(mut args: impl Iterator<Item = String>) -> Result<(), String> {
@@ -134,59 +133,3 @@ pub(crate) fn run_cfb_dir(mut args: impl Iterator<Item = String>) -> Result<(), 
     Ok(())
 }
 
-pub(crate) fn run_stream_meta(mut args: impl Iterator<Item = String>) -> Result<(), String> {
-    let path = required_path(args.next(), "stream-meta")?;
-    let stream_path = required_path(args.next(), "stream-meta")?;
-    let stream_path = unescaped_path(&stream_path)?;
-    let bytes = read_file(path)?;
-    let location =
-        inspect_cfb_stream_location(&bytes, &stream_path).map_err(|error| error.to_string())?;
-    write_stdout_line(&format!("path\t{}", escaped_path(location.path())))?;
-    write_stdout_line(&format!("size\t{}", location.size()))?;
-    write_stdout_line(&format!("start_sector\t{}", location.start_sector()))?;
-    write_stdout_line(&format!("storage\t{}", location.storage().as_str()))?;
-    write_stdout_line(&format!(
-        "mini_stream_cutoff\t{}",
-        location.mini_stream_cutoff()
-    ))?;
-    write_stdout_line(&format!(
-        "mini_stream_bytes\t{}",
-        location.mini_stream_bytes()
-    ))?;
-    write_stdout_line(&format!(
-        "mini_fat_entries\t{}",
-        location.mini_fat_entries()
-    ))?;
-    Ok(())
-}
-
-pub(crate) fn run_stream_chain(mut args: impl Iterator<Item = String>) -> Result<(), String> {
-    let path = required_path(args.next(), "stream-chain")?;
-    let stream_path = required_path(args.next(), "stream-chain")?;
-    let stream_path = unescaped_path(&stream_path)?;
-    let bytes = read_file(path)?;
-    let chain =
-        inspect_cfb_stream_chain(&bytes, &stream_path).map_err(|error| error.to_string())?;
-    let location = chain.location();
-    write_stdout_line(&format!("path\t{}", escaped_path(location.path())))?;
-    write_stdout_line(&format!("storage\t{}", location.storage().as_str()))?;
-    write_stdout_line(&format!("declared_size\t{}", location.size()))?;
-    write_stdout_line(&format!("start_sector\t{}", location.start_sector()))?;
-    write_stdout_line(&format!("sector_size\t{}", chain.sector_size()))?;
-    write_stdout_line(&format!(
-        "offset_basis\t{}",
-        stream_chain_offset_basis(location.storage())
-    ))?;
-    write_stdout_line(&format!("chain_bytes\t{}", chain.capacity_bytes()))?;
-    write_stdout_line(&format!("status\t{}", chain.status().as_str()))?;
-    for (index, sector) in chain.sectors().iter().enumerate() {
-        write_stdout_line(&format!(
-            "sector\t{}\t{}\t{}\t{}",
-            index,
-            sector.sector_id(),
-            sector.byte_offset(),
-            sector.byte_len()
-        ))?;
-    }
-    Ok(())
-}

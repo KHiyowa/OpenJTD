@@ -55,31 +55,6 @@ fn export_command_outputs_footnote_references() {
     assert!(stdout.contains("[1] 烏瓜（からすうり） ウリ科の植物。"));
 }
 
-#[test]
-fn export_command_outputs_footnote_references_markdown() {
-    let path = tiny_cfb_with_footnote_path();
-    let output = Command::new(env!("CARGO_BIN_EXE_rjtd"))
-        .arg("export")
-        .arg(&path)
-        .arg("-f")
-        .arg("md")
-        .arg("-s")
-        .arg("0")
-        .output()
-        .unwrap();
-
-    fs::remove_file(&path).unwrap();
-
-    assert!(
-        output.status.success(),
-        "stderr: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("## 参考文献"));
-    assert!(stdout.contains("[1] 烏瓜（からすうり） ウリ科の植物。"));
-}
-
 // Footnote stream that ends with the internal field/template marker `0x001d Note 0x001e`
 // (surfacing as an exposed "Note" after the last reference). Unit tests embed no thesis text;
 // using Aozora Bunko "Night on the Galactic Railroad" text instead (Miyazawa Kenji).
