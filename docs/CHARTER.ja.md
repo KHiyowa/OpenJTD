@@ -114,8 +114,7 @@ openjtd-workspace/
 ├── rjtd
 ├── openjtd-spec
 ├── openjtd-samples
-├── rjtd-testdata
-└── openjtd.github.io
+└── rjtd-testdata
 ```
 
 最上位の `docs` は、プロジェクト憲章、エコシステム計画、rhwp 継承ポリシー、長期ロードマップを含む。
@@ -275,8 +274,7 @@ openjtd/
 ├── rjtd
 ├── openjtd-spec
 ├── openjtd-samples
-├── rjtd-testdata
-└── openjtd.github.io
+└── rjtd-testdata
 ```
 
 特に `openjtd-spec` を `rjtd` code と同格のプロジェクトとして扱う原則を organization

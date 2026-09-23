@@ -73,7 +73,6 @@ cargo run -p rjtd-cli -- export path/to/document.jtd --format txt
 - [`docs/`](docs/) - 憲章、アーキテクチャ、ロードマップ、調査ポリシー。
 - [`openjtd-samples/`](openjtd-samples/) - 再配布可能なサンプル/出力成果物。
 - [`rjtd-testdata/`](rjtd-testdata/) - テストフィクスチャ。
-- [`openjtd.github.io/`](openjtd.github.io/) - 将来のプロジェクトサイト。
 
 ## ドキュメント
 

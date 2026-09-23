@@ -115,8 +115,7 @@ openjtd-workspace/
 ├── rjtd
 ├── openjtd-spec
 ├── openjtd-samples
-├── rjtd-testdata
-└── openjtd.github.io
+└── rjtd-testdata
 ```
 
 The top-level `docs` directory contains the project charter, ecosystem planning, rhwp inheritance policy, and long-term roadmap.
@@ -277,8 +276,7 @@ openjtd/
 ├── rjtd
 ├── openjtd-spec
 ├── openjtd-samples
-├── rjtd-testdata
-└── openjtd.github.io
+└── rjtd-testdata
 ```
 
 The principle that `openjtd-spec` is a peer project to the `rjtd` code is also

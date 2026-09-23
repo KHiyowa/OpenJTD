@@ -73,7 +73,6 @@ cargo run -p rjtd-cli -- export path/to/document.jtd --format txt
 - [`docs/`](docs/) - charter, architecture, roadmap, and research policy.
 - [`openjtd-samples/`](openjtd-samples/) - redistributable sample/output artifacts.
 - [`rjtd-testdata/`](rjtd-testdata/) - test fixtures.
-- [`openjtd.github.io/`](openjtd.github.io/) - future project site.
 
 ## Documentation
 
