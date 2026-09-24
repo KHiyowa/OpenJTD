@@ -5,6 +5,8 @@ mod support;
 mod container;
 #[path = "streams/footnote.rs"]
 mod footnote;
+#[path = "streams/header_text.rs"]
+mod header_text;
 #[path = "streams/markerless_raw.rs"]
 mod markerless_raw;
 #[path = "streams/render.rs"]
