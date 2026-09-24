@@ -1,3 +1,7 @@
+> **This repository is deprecated as of this commit. Future development will
+> continue in the Apache Tika native parser project:
+> [https://github.com/KHiyowa/tika-jtd](https://github.com/KHiyowa/tika-jtd).**
+
 # OpenJTD
 
 Open-source JTD rendering engine and editor project for Ichitaro documents

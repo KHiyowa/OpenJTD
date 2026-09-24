@@ -1,3 +1,6 @@
+> **このコミットをもってこのリポジトリを放棄し、以降はApache Tikaネイティブ
+> パーサープロジェクト https://github.com/KHiyowa/tika-jtd として開発を継続します。**
+
 # OpenJTD
 
 一太郎文書（`.jtd`、`.jtt`、`.jttc`）向けのオープンソース JTD
