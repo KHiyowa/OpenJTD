@@ -10,9 +10,10 @@ use rjtd_core::document_text::{
     DocumentTextElement, DocumentTextPayload, ParsedDocumentText, parse_document_text,
     read_document_text_payload_with_budget,
 };
-use rjtd_core::{Error, ParseLimits, ResourceBudget, Result};
-pub use rjtd_core::sheet::{DocumentSheetInfo, SheetItem};
+use rjtd_core::header_text::read_header_text;
 use rjtd_core::sheet::read_document_sheets;
+pub use rjtd_core::sheet::{DocumentSheetInfo, SheetItem};
+use rjtd_core::{Error, ParseLimits, ResourceBudget, Result};
 
 mod block_text_model;
 mod parse;
@@ -108,6 +109,7 @@ pub struct Document {
     metadata: Metadata,
     blocks: Vec<Block>,
     sheets: Vec<DocumentSheet>,
+    header_text: Option<String>,
 }
 
 impl Document {
@@ -116,7 +118,19 @@ impl Document {
             metadata,
             blocks,
             sheets: Vec::new(),
+            header_text: None,
         }
+    }
+
+    /// /Header（ヘッダ・フッタ本文）を保持する（PARTIAL-LOSS-REPORT.md 付録2 P-H＋F）。
+    /// Tika 準拠で本文前（先頭行）への前置き出力用（cat / export-txt 共用）。
+    pub fn with_header_text(mut self, header_text: impl Into<String>) -> Self {
+        self.header_text = Some(header_text.into());
+        self
+    }
+
+    pub fn header_text(&self) -> Option<&str> {
+        self.header_text.as_deref()
     }
 
     pub fn from_plain_text(text: &str) -> Self {
@@ -242,6 +256,15 @@ impl IchitaroParser {
             read_document_text_payload_with_budget(data, budget.decompression_budget_mut())?;
         let mut document = Document::from_document_text_payload(&payload);
 
+        // P-H＋F（PARTIAL-LOSS-REPORT.md 付録2）: /Header のヘッダ・フッタ本文を保持する
+        // （core の read_header_text 共用で cat と同一規則）。/Header 欠落・全 span 空・
+        // 読み取り失敗は None のまま（従来出力不変）。
+        if let Ok(Some(header)) = read_header_text(data)
+            && !header.text().trim().is_empty()
+        {
+            document = document.with_header_text(header.text());
+        }
+
         if let Ok(sheet_infos) = read_document_sheets(data) {
             if !sheet_infos.is_empty() {
                 for sheet_info in sheet_infos {
@@ -337,7 +360,8 @@ fn read_footnote_text(stream_bytes: &[u8]) -> Option<String> {
                     output.push_str(text);
                 }
             }
-            DocumentTextElement::SkippedInlineText(_) | DocumentTextElement::ControlBoundary(_) => {}
+            DocumentTextElement::SkippedInlineText(_) | DocumentTextElement::ControlBoundary(_) => {
+            }
         }
     }
 
@@ -376,10 +400,7 @@ fn paragraph_text(paragraph: &Paragraph) -> String {
     text
 }
 
-fn reserve_and_verify_cfb_streams(
-    data: &[u8],
-    budget: &mut ResourceBudget,
-) -> Result<()> {
+fn reserve_and_verify_cfb_streams(data: &[u8], budget: &mut ResourceBudget) -> Result<()> {
     let Ok((entries, mode)) = inspect_cfb_entries_with_mode(data) else {
         return Ok(());
     };

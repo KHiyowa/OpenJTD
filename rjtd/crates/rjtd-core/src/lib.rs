@@ -6,6 +6,7 @@ pub mod document_text;
 pub mod error;
 pub mod format;
 pub mod layout_box_text;
+pub mod header_text;
 pub mod lha;
 pub mod limits;
 pub mod record;

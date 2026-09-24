@@ -32,7 +32,9 @@ const HEADER_SEGMENT_NAME: [u16; 4] = [0x5465, 0x7874, 0x562e, 0x3031]; // "Text
 const HEADER_CNT_SEGMENT_NAME: [u16; 4] = [0x5443, 0x6e74, 0x562e, 0x3031]; // "TCntV.01"
 const HEADER_SEGMENT_PITCH_WORDS: usize = 128; // 256 byte
 /// テスト末尾に置く位置/所有テーブル列を模した数値語（出力に漏れてはならない）。
-const HEADER_TAIL_TABLE: [u16; 8] = [0x001b, 0x0000, 0x0001, 0x0000, 0x0001, 0x0000, 0x005d, 0x00a9];
+const HEADER_TAIL_TABLE: [u16; 8] = [
+    0x001b, 0x0000, 0x0001, 0x0000, 0x0001, 0x0000, 0x005d, 0x00a9,
+];
 
 fn extend_words(bytes: &mut Vec<u8>, words: &[u16]) {
     for word in words {
@@ -69,8 +71,16 @@ fn header_payload(segments: &[&[u16]]) -> Vec<u8> {
     extend_words(
         &mut bytes,
         &[
-            0x5373, 0x6d67, 0x562e, 0x3031, // SsmgV.01
-            0x0000, 0x0001, 0x0000, 0x0100, 0x0000, segments.len() as u16,
+            0x5373,
+            0x6d67,
+            0x562e,
+            0x3031, // SsmgV.01
+            0x0000,
+            0x0001,
+            0x0000,
+            0x0100,
+            0x0000,
+            segments.len() as u16,
         ],
     );
     for segment in segments {
@@ -170,7 +180,10 @@ fn cat_prepends_resolved_page_number_from_raw_header_span() {
 
     assert_eq!(code, 0);
     assert_eq!(stdout, "- 1 -\n\n銀河鉄道\n");
-    assert!(!stdout.contains('?'), "プレースホルダ `?` が未解決で残っている");
+    assert!(
+        !stdout.contains('?'),
+        "プレースホルダ `?` が未解決で残っている"
+    );
     assert_no_header_junk(&stdout);
 }
 
@@ -213,7 +226,10 @@ fn cat_prepends_multiple_header_spans_in_stream_order() {
 /// raw span 内の改行（CR/LF）は行区切りとして保持する（P1 デコード規則の共用）。
 #[test]
 fn cat_header_span_keeps_line_breaks_in_raw_text() {
-    let path = jtd_with_header(&header_payload(&[&raw_span("銀河の夜\n天文台"), &empty_cnt_slot()]));
+    let path = jtd_with_header(&header_payload(&[
+        &raw_span("銀河の夜\n天文台"),
+        &empty_cnt_slot(),
+    ]));
     let (code, stdout) = run_cat(&path);
     fs_remove(&path);
 
@@ -254,8 +270,8 @@ fn cat_output_unchanged_when_header_span_is_truncated() {
         &mut broken,
         &[
             0x5373, 0x6d67, 0x562e, 0x3031, // SsmgV.01
-            0x0000, 0x0001, 0x0000, 0x0100, 0x0000, 0x0001,
-            0x5465, 0x7874, 0x562e, 0x3031, // TextV.01
+            0x0000, 0x0001, 0x0000, 0x0100, 0x0000, 0x0001, 0x5465, 0x7874, 0x562e,
+            0x3031, // TextV.01
             0x0000, 0x7fff,
         ],
     );
@@ -302,7 +318,9 @@ fn fs_remove(path: &PathBuf) {
 
 /// 末尾位置/所有テーブル列・スロット名・区切り制御語が出力に一切漏れないこと。
 fn assert_no_header_junk(stdout: &str) {
-    for junk in ['\u{001b}', '\u{005d}', '\u{00a9}', '\u{001c}', '\u{001d}', '\u{001e}', '\u{001f}'] {
+    for junk in [
+        '\u{001b}', '\u{005d}', '\u{00a9}', '\u{001c}', '\u{001d}', '\u{001e}', '\u{001f}',
+    ] {
         assert!(
             !stdout.contains(junk),
             "ヘッダ領域の制御語・テーブル語 `{junk:?}` が出力に漏れている"

@@ -18,6 +18,12 @@ pub fn to_plain_text(document: &Document) -> String {
 
         output
     };
+
+    // P-H＋F: cat と同一規則でヘッダ・フッタ本文を先頭に前置き（Tika 準拠）。
+    let output = match document.header_text() {
+        Some(header) => format!("{header}\n\n{output}"),
+        None => output,
+    };
     trim_trailing_exposed_controls(&output).to_string()
 }
 
